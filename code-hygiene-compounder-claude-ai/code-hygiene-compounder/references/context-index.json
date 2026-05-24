@@ -1,0 +1,3352 @@
+{
+  "files": [
+    {
+      "domains": [
+        "daily-hygiene",
+        "routing"
+      ],
+      "lines": 153,
+      "path": "SKILL.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "active skill entrypoint and routing workflow",
+      "sections": [
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Code Hygiene Compounder",
+          "lines": [
+            6,
+            7
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Quick Start",
+          "lines": [
+            8,
+            36
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Hygiene Workflow",
+          "lines": [
+            37,
+            78
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Source Corpus Workflow",
+          "lines": [
+            79,
+            101
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "PASS-100 Modes",
+          "lines": [
+            102,
+            111
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Automation Commands",
+          "lines": [
+            112,
+            136
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "References",
+          "lines": [
+            137,
+            153
+          ]
+        }
+      ],
+      "sha256": "8281d925afd94277fc278cfc000effe8dfe08f6cf1df48aecccca16d0418797d",
+      "words": 1296
+    },
+    {
+      "domains": [
+        "daily-hygiene",
+        "routing"
+      ],
+      "lines": 27,
+      "path": "references/HYGIENE_QUICK.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "daily hygiene checklist",
+      "sections": [
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Hygiene Quick Entry",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Quick Loop",
+          "lines": [
+            5,
+            15
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "High-Signal Anti-Patterns",
+          "lines": [
+            16,
+            27
+          ]
+        }
+      ],
+      "sha256": "e9ca211739451b3bc2da964e6520954e202f21c6d79351a550b4b3ab93b9158f",
+      "words": 321
+    },
+    {
+      "domains": [
+        "evidence",
+        "guardrails",
+        "promotion",
+        "training",
+        "verification"
+      ],
+      "lines": 90,
+      "path": "references/PASS-100.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "PASS-100 scoring rubric",
+      "sections": [
+        {
+          "domains": [
+            "evidence",
+            "guardrails",
+            "promotion",
+            "training",
+            "verification"
+          ],
+          "heading": "PASS-100 Rubric",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "guardrails",
+            "promotion",
+            "training",
+            "verification"
+          ],
+          "heading": "Evidence Limits",
+          "lines": [
+            5,
+            15
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "guardrails",
+            "promotion",
+            "training",
+            "verification"
+          ],
+          "heading": "Scoring",
+          "lines": [
+            16,
+            32
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "guardrails",
+            "promotion",
+            "training",
+            "verification"
+          ],
+          "heading": "Caps",
+          "lines": [
+            33,
+            41
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "guardrails",
+            "promotion",
+            "training",
+            "verification"
+          ],
+          "heading": "Result Schema",
+          "lines": [
+            42,
+            74
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "guardrails",
+            "promotion",
+            "training",
+            "verification"
+          ],
+          "heading": "Promotion Thresholds",
+          "lines": [
+            75,
+            81
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "guardrails",
+            "promotion",
+            "training",
+            "verification"
+          ],
+          "heading": "Source Anchors",
+          "lines": [
+            82,
+            90
+          ]
+        }
+      ],
+      "sha256": "8267ad5546dd64b301be3a0cf1a54ca340d429662147a91be45321e57aad6362",
+      "words": 700
+    },
+    {
+      "domains": [
+        "guardrails",
+        "promotion",
+        "training"
+      ],
+      "lines": 94,
+      "path": "references/compound-loop.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "training and promotion protocol",
+      "sections": [
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Compound Loop",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Phases",
+          "lines": [
+            5,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Full-Auto Cycle",
+          "lines": [
+            15,
+            32
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Run Types",
+          "lines": [
+            33,
+            44
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Hard-Mode Real-Code Evidence",
+          "lines": [
+            45,
+            52
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Promotion Gates",
+          "lines": [
+            53,
+            70
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Rejection Reasons",
+          "lines": [
+            71,
+            80
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Phase Advancement",
+          "lines": [
+            81,
+            86
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Final Candidate Criteria",
+          "lines": [
+            87,
+            94
+          ]
+        }
+      ],
+      "sha256": "a15e81349e0bb67236dcc071e4978b5480298ab3317b69eb832db4bdcda25bbb",
+      "words": 880
+    },
+    {
+      "domains": [
+        "reference"
+      ],
+      "lines": 111,
+      "path": "references/context-index.schema.json",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "reference material",
+      "sections": [],
+      "sha256": "4afeaea55964a671fd197c16c9233f1cd96eb9138240cd49e83509cf2742d5ed",
+      "words": 178
+    },
+    {
+      "domains": [
+        "fixtures",
+        "matrix"
+      ],
+      "lines": 133,
+      "path": "references/eval-prompts.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "PASS-100 prompt suite",
+      "sections": [
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Phase 0 Evaluation Prompts",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Correctness and Regressions",
+          "lines": [
+            5,
+            17
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Test Quality",
+          "lines": [
+            18,
+            30
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Maintainability and Simplicity",
+          "lines": [
+            31,
+            43
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Security and Data Safety",
+          "lines": [
+            44,
+            56
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Local Integration",
+          "lines": [
+            57,
+            69
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Minimal Diff and Reviewability",
+          "lines": [
+            70,
+            82
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Error Handling and Observability",
+          "lines": [
+            83,
+            95
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Documentation and Comments",
+          "lines": [
+            96,
+            108
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Dependency and Config Hygiene",
+          "lines": [
+            109,
+            121
+          ]
+        },
+        {
+          "domains": [
+            "fixtures",
+            "matrix"
+          ],
+          "heading": "Agent Process Hygiene",
+          "lines": [
+            122,
+            133
+          ]
+        }
+      ],
+      "sha256": "0f57123065a6b5848c44ce8701e3b4c6ad10acb0c048447c84962775fe06cf3e",
+      "words": 1261
+    },
+    {
+      "domains": [
+        "evidence",
+        "verification"
+      ],
+      "lines": 36,
+      "path": "references/evidence-report.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "completion and verification report shape",
+      "sections": [
+        {
+          "domains": [
+            "evidence",
+            "verification"
+          ],
+          "heading": "Evidence Report",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "verification"
+          ],
+          "heading": "Required Shape",
+          "lines": [
+            5,
+            21
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "verification"
+          ],
+          "heading": "Rules",
+          "lines": [
+            22,
+            31
+          ]
+        },
+        {
+          "domains": [
+            "evidence",
+            "verification"
+          ],
+          "heading": "Timing Example",
+          "lines": [
+            32,
+            36
+          ]
+        }
+      ],
+      "sha256": "fd7fe7b276ab27341334549b32322c17fbc5f5aedf794523b3d5fcf708c5c44b",
+      "words": 322
+    },
+    {
+      "domains": [
+        "daily-hygiene",
+        "routing"
+      ],
+      "lines": 78,
+      "path": "references/hygiene-principles.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled operational principles",
+      "sections": [
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Hygiene Principles",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Universal Principles",
+          "lines": [
+            5,
+            22
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Source-Weighted Application",
+          "lines": [
+            23,
+            31
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Python Conditional Principles",
+          "lines": [
+            32,
+            38
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Developer Documentation Conditional Principles",
+          "lines": [
+            39,
+            45
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "LLM Tool Schema Conditional Principles",
+          "lines": [
+            46,
+            51
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Anti-Patterns To Penalize",
+          "lines": [
+            52,
+            71
+          ]
+        },
+        {
+          "domains": [
+            "daily-hygiene",
+            "routing"
+          ],
+          "heading": "Training Implications",
+          "lines": [
+            72,
+            78
+          ]
+        }
+      ],
+      "sha256": "39b924473d31d72aba1f04e892824862664c449e1fc20104ec0519cdf0eb53a7",
+      "words": 989
+    },
+    {
+      "domains": [
+        "guardrails",
+        "promotion",
+        "training"
+      ],
+      "lines": 36,
+      "path": "references/overtraining-guardrails.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "anti-overtraining checks",
+      "sections": [
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Overtraining Guardrails",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Budgets",
+          "lines": [
+            5,
+            13
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Promotion Questions",
+          "lines": [
+            14,
+            27
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Failure Signs",
+          "lines": [
+            28,
+            36
+          ]
+        }
+      ],
+      "sha256": "23b3a67de8fece943363123e0f8aa2a5346dddae5e723a6ae97a39707439519d",
+      "words": 332
+    },
+    {
+      "domains": [
+        "reference"
+      ],
+      "lines": 39,
+      "path": "references/principle-traceability.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "reference material",
+      "sections": [
+        {
+          "domains": [
+            "reference"
+          ],
+          "heading": "Principle Traceability",
+          "lines": [
+            1,
+            28
+          ]
+        },
+        {
+          "domains": [
+            "reference"
+          ],
+          "heading": "Honing Requirement",
+          "lines": [
+            29,
+            39
+          ]
+        }
+      ],
+      "sha256": "0f6a64398bdac0d9910ab4eaf7005c3d90169e4d315588476abe9d0b28d644e9",
+      "words": 738
+    },
+    {
+      "domains": [
+        "reference"
+      ],
+      "lines": 37,
+      "path": "references/research-canon.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "research basis summary",
+      "sections": [
+        {
+          "domains": [
+            "reference"
+          ],
+          "heading": "Research Canon",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "reference"
+          ],
+          "heading": "Core Sources",
+          "lines": [
+            5,
+            16
+          ]
+        },
+        {
+          "domains": [
+            "reference"
+          ],
+          "heading": "Hygiene Principles",
+          "lines": [
+            17,
+            29
+          ]
+        },
+        {
+          "domains": [
+            "reference"
+          ],
+          "heading": "Agent-Specific Rules",
+          "lines": [
+            30,
+            37
+          ]
+        }
+      ],
+      "sha256": "50646cd691823672a539040c9e82126db143c41e98d242c6ea18ffde7b71944e",
+      "words": 376
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 61,
+      "path": "references/source-grounded-honing.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "reference material",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source-Grounded Honing Protocol",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Honing Loop",
+          "lines": [
+            5,
+            21
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Enforcement Gate",
+          "lines": [
+            22,
+            32
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Important Limits",
+          "lines": [
+            33,
+            39
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Report Template",
+          "lines": [
+            40,
+            61
+          ]
+        }
+      ],
+      "sha256": "a150a2cbd895eee626e56b5b10ffbe457539f8b44b3acf7e2431ae608b6753ae",
+      "words": 354
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 24,
+      "path": "references/source-packs/agent-eval-methodology.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Agent Evaluation Methodology",
+          "lines": [
+            1,
+            10
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            11,
+            21
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            22,
+            24
+          ]
+        }
+      ],
+      "sha256": "c40a8c0a62767f199c8426f6f45cd310044be2303b6c91ae225d879b50e604a8",
+      "words": 193
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/cisa-secure-by-design.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: CISA Secure by Design",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "4fb69381fecac7937027dfbb998f4dae11944973c2c56299f300c5b5b19914ff",
+      "words": 80
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 22,
+      "path": "references/source-packs/google-developer-docs-style.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Google Developer Documentation Style Guide",
+          "lines": [
+            1,
+            9
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            10,
+            19
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            20,
+            22
+          ]
+        }
+      ],
+      "sha256": "97ddabee7164318cae55658db4c53899f8a872db1cb113f22853ab11f549ae0b",
+      "words": 206
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 27,
+      "path": "references/source-packs/google-eng-practices.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Google Engineering Practices",
+          "lines": [
+            1,
+            8
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            9,
+            24
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            25,
+            27
+          ]
+        }
+      ],
+      "sha256": "525b6a272998e3447782821cc376c9f1816459e71a4d471a0d280a28257cb19f",
+      "words": 194
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 16,
+      "path": "references/source-packs/google-style-guides.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Google Style Guides",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            13
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            14,
+            16
+          ]
+        }
+      ],
+      "sha256": "9304a823462adb44fbb38b2f0fee16ab0973ab98bea35133d97acb6014d5134c",
+      "words": 80
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 18,
+      "path": "references/source-packs/google-testing.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Google Testing",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            15
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            16,
+            18
+          ]
+        }
+      ],
+      "sha256": "c61b37df512d4f16f6e7e3605983dbbf7ff7f4e0787588bfbff9550b5a679786",
+      "words": 92
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 27,
+      "path": "references/source-packs/llm-provider-schema-docs.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: LLM Provider Tool and Structured Output Documentation",
+          "lines": [
+            1,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            15,
+            24
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            25,
+            27
+          ]
+        }
+      ],
+      "sha256": "595a21c34a1af909db03c1f30926ffc36d3ac9541af34dbacd75d25845eae9bf",
+      "words": 281
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/microsoft-rest-api-guidelines.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Microsoft REST API Guidelines",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "854908ba489b2d94beb4accc6944682063ec61cf932c48e30b75ef3bfee163b0",
+      "words": 80
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/microsoft-sdl.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Microsoft SDL",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "c309525b1767de4072254cbeeacc8d16e9bbf9584efee16d46d63a29c8c11d8c",
+      "words": 85
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/mitre-cwe-top25.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: MITRE CWE Top 25",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "cdbe6b32cf12547f4942a797905e71a5cb7da210b80060fbd04c05c34ab356cc",
+      "words": 101
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 19,
+      "path": "references/source-packs/nasa-jpl-power-of-ten.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: NASA/JPL Power of Ten",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            16
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            17,
+            19
+          ]
+        }
+      ],
+      "sha256": "d5b92db2775a5c09bf8fa7eb41cb26705e7d499d806063b9c0c52b21d20ec3cc",
+      "words": 108
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 18,
+      "path": "references/source-packs/nist-ssdf.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: NIST SSDF",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            15
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            16,
+            18
+          ]
+        }
+      ],
+      "sha256": "efb070657006a5f716138e19cc31e472684c189475dafae37e47863d2a16aee3",
+      "words": 99
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 16,
+      "path": "references/source-packs/openssf-scorecard.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: OpenSSF Scorecard",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            13
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            14,
+            16
+          ]
+        }
+      ],
+      "sha256": "727c4d64e493291f8e4a7b94e1e229ac6fd11324ef00cc22e74cae63f43b94e6",
+      "words": 79
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/opentelemetry.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: OpenTelemetry",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "466d6bd659650c37ae0cb73ad23e0179a5e7581b1d66dcce590e92e3897721a7",
+      "words": 80
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/owasp-asvs.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: OWASP ASVS",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "23d92341987e3295fd20efa9776243d387efb3da78a7355769c3c90b3f06c856",
+      "words": 101
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 22,
+      "path": "references/source-packs/owasp-secure-coding.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: OWASP Secure Coding Practices",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            19
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            20,
+            22
+          ]
+        }
+      ],
+      "sha256": "21457c6a410268521197a061538fe450e7c493ae8f9ebb2d635e6cd92b9c82b7",
+      "words": 143
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 27,
+      "path": "references/source-packs/python-core-docs.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Python Core Docs and PEPs",
+          "lines": [
+            1,
+            11
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            12,
+            24
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            25,
+            27
+          ]
+        }
+      ],
+      "sha256": "d604bfc49eca47a43e0fd38a46da9231c58fae42b37c9d46529148a0346aa3ac",
+      "words": 207
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 24,
+      "path": "references/source-packs/python-testing-packaging.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Python Testing and Packaging",
+          "lines": [
+            1,
+            9
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            10,
+            21
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            22,
+            24
+          ]
+        }
+      ],
+      "sha256": "e4ddae663f924f8fa3623c8b4016530098d2d0d9002269b04966007f5f618071",
+      "words": 199
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 18,
+      "path": "references/source-packs/rfc9110-http-semantics.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: RFC 9110 HTTP Semantics",
+          "lines": [
+            1,
+            7
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            8,
+            15
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            16,
+            18
+          ]
+        }
+      ],
+      "sha256": "1ac0e5706fde5199ccb7b0b1481e1dfca2d7be3831726d1cc36f8265d742f809",
+      "words": 113
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/sei-cert.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: SEI CERT Secure Coding",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "445894c825a636729507c5b2dd1c82b87a78e76a3bf7d183a4bc8b6c461aac0c",
+      "words": 86
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 16,
+      "path": "references/source-packs/semver.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Semantic Versioning",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            13
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            14,
+            16
+          ]
+        }
+      ],
+      "sha256": "1cf5bb3459604a0389f1824e6a3fabe94c37a2b0005f755a3fe03e7cf5965b04",
+      "words": 79
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/slsa.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: SLSA",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "18fbc86ef4caa7aeffd90c0adef73f1844540d41b97d24301de9a7fdccc7af13",
+      "words": 74
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 18,
+      "path": "references/source-packs/twelve-factor-config.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: Twelve-Factor Config",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            15
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            16,
+            18
+          ]
+        }
+      ],
+      "sha256": "b4afcc1e625640a20b6cb54214d85a790c5e9317720c3e27bc0d1d68d9bed5d1",
+      "words": 94
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 17,
+      "path": "references/source-packs/wcag-22.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "distilled source pack",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Pack: WCAG 2.2",
+          "lines": [
+            1,
+            6
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Distilled Checks",
+          "lines": [
+            7,
+            14
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "PASS-100 Focus",
+          "lines": [
+            15,
+            17
+          ]
+        }
+      ],
+      "sha256": "8e7d8cda3f09add78cf6fbe31562c704fa1ae2fb8901e02e5ef88f527dd86c62",
+      "words": 98
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 101,
+      "path": "references/source-registry.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "authoritative source registry",
+      "sections": [
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Registry",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Core Corpus",
+          "lines": [
+            5,
+            20
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Conditional Core",
+          "lines": [
+            21,
+            39
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Evaluation Sources",
+          "lines": [
+            40,
+            45
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Source Admission Rules",
+          "lines": [
+            46,
+            53
+          ]
+        },
+        {
+          "domains": [
+            "audit",
+            "source"
+          ],
+          "heading": "Verified Source Links",
+          "lines": [
+            54,
+            101
+          ]
+        }
+      ],
+      "sha256": "7070897867c672858c9dcfb042dfa7c04c924af83c01b4694994d90903518f9c",
+      "words": 1270
+    },
+    {
+      "domains": [
+        "audit",
+        "source"
+      ],
+      "lines": 182,
+      "path": "references/source-weights.json",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "source activation weights",
+      "sections": [],
+      "sha256": "b3d9d5da7d1f8da1238675a741d33533ee3d0d796274fd72db8f0ef213b526c7",
+      "words": 456
+    },
+    {
+      "domains": [
+        "guardrails",
+        "promotion",
+        "training"
+      ],
+      "lines": 251,
+      "path": "references/training-lessons.md",
+      "read_when": [
+        "activating source packs by domain",
+        "adding lessons, fixtures, sources, or training rules",
+        "avoiding duplicate lessons",
+        "changing training, promotion, or compounding behavior",
+        "checking active workflow routing",
+        "checking prior promoted lessons",
+        "claiming completion",
+        "classifying or auditing sources",
+        "ordinary code review, cleanup, hardening, or implementation",
+        "performing source-grounded scoring or honing",
+        "recording verification evidence",
+        "scoring or evaluating candidate work",
+        "selecting PASS-100 prompts or checking fixture coverage",
+        "starting broad training or export work"
+      ],
+      "role": "promoted compact lessons",
+      "sections": [
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "Training Lessons",
+          "lines": [
+            1,
+            4
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-28: OWASP Juice Shop Codefix Loop",
+          "lines": [
+            5,
+            11
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-28: Gilded Rose Refactoring Kata",
+          "lines": [
+            12,
+            16
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-28: Tennis Refactoring Kata",
+          "lines": [
+            17,
+            21
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-28: Trivia Legacy Refactoring Kata",
+          "lines": [
+            22,
+            26
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-28: Yatzy Refactoring Kata",
+          "lines": [
+            27,
+            31
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-28: Theatrical Players Refactoring Kata",
+          "lines": [
+            32,
+            36
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Self-Hygiene Guardrails",
+          "lines": [
+            37,
+            41
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Parrot Refactoring Kata",
+          "lines": [
+            42,
+            46
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Supermarket Receipt Refactoring Kata",
+          "lines": [
+            47,
+            51
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Bowling Game Kata",
+          "lines": [
+            52,
+            59
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Racing Car Tire Pressure Kata",
+          "lines": [
+            60,
+            64
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Racing Car Turn Ticket Kata",
+          "lines": [
+            65,
+            69
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Racing Car Text Converter Kata",
+          "lines": [
+            70,
+            75
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Racing Car Telemetry Kata",
+          "lines": [
+            76,
+            80
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Racing Car Leaderboard Kata",
+          "lines": [
+            81,
+            85
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Trip Service Python Kata",
+          "lines": [
+            86,
+            90
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Trip Service JavaScript Kata",
+          "lines": [
+            91,
+            95
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Trip Service C# Kata",
+          "lines": [
+            96,
+            100
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Trip Service TypeScript Kata",
+          "lines": [
+            101,
+            105
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Claude Command Entrypoint",
+          "lines": [
+            106,
+            111
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Source Audit Domain Validation",
+          "lines": [
+            112,
+            116
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Honing Report Source Exactness",
+          "lines": [
+            117,
+            121
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Honing Report Duplicate Source Rejection",
+          "lines": [
+            122,
+            126
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: PASS-100 Score Shape Validation",
+          "lines": [
+            127,
+            131
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: PASS-100 Top-Level Shape Validation",
+          "lines": [
+            132,
+            136
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: PASS-100 Invalid JSON Diagnostics",
+          "lines": [
+            137,
+            141
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Honing Report Evidence Type Validation",
+          "lines": [
+            142,
+            146
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Promotion Gate Validator Parity",
+          "lines": [
+            147,
+            151
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Promotion Score Artifact Validation",
+          "lines": [
+            152,
+            156
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: PASS-100 Nested Category Shape Handling",
+          "lines": [
+            157,
+            161
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Source Corpus Metadata Validation",
+          "lines": [
+            162,
+            166
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Claude Export Path Safety",
+          "lines": [
+            167,
+            171
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-29: Claude Package Format Separation",
+          "lines": [
+            172,
+            177
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 0A Python Fixture Sweep",
+          "lines": [
+            178,
+            181
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Python Runner Harness Consolidation",
+          "lines": [
+            182,
+            188
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Python Target Batch Runner",
+          "lines": [
+            189,
+            192
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Python Static Hygiene for Testless Legacy Targets",
+          "lines": [
+            193,
+            196
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Python Static Syntax Compatibility Findings",
+          "lines": [
+            197,
+            200
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Python Static Resource Management Findings",
+          "lines": [
+            201,
+            204
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Python Static Top-Level Work Findings",
+          "lines": [
+            205,
+            208
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Dependency Manifest Hygiene",
+          "lines": [
+            209,
+            212
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Hardcoded Sensitive Constants",
+          "lines": [
+            213,
+            216
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Application File I/O Hygiene",
+          "lines": [
+            217,
+            220
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Caller-Controlled File Paths",
+          "lines": [
+            221,
+            224
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Loop String Accumulation",
+          "lines": [
+            225,
+            228
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Static Target Expansion",
+          "lines": [
+            229,
+            232
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Hardwired Runtime Randomness",
+          "lines": [
+            233,
+            236
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-04-30: Phase 1 Python Class State Mutation",
+          "lines": [
+            237,
+            240
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-05-04: HYG-032 Path Traversal Fixture",
+          "lines": [
+            241,
+            244
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-05-21: Bounded Scratch Target Scope",
+          "lines": [
+            245,
+            248
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-05-22: HYG-083 Config Precedence Controls",
+          "lines": [
+            249,
+            251
+          ]
+        }
+      ],
+      "sha256": "b55750618cbb224640d29c4261ee95106e2095ac4a37f65b9b432f33b6ad026b",
+      "words": 4921
+    }
+  ],
+  "generated_at": "1970-01-01T00:00:00+00:00",
+  "root": "code-hygiene-compounder",
+  "version": "1"
+}

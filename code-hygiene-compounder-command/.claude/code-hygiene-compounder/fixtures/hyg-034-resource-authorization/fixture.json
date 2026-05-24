@@ -1,0 +1,11 @@
+{
+  "baseline_expected": "fail",
+  "category": "Security and Data Safety",
+  "id": "hyg-034-resource-authorization",
+  "pass_stat": "unittest_exit_zero_and_protected_files_unchanged",
+  "prompt_id": "HYG-034",
+  "protected_files": ["tests/test_authz.py"],
+  "repo_dir": "repo",
+  "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+  "title": "Harden tenant-scoped resource authorization"
+}

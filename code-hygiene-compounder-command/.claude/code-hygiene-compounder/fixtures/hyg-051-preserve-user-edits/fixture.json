@@ -1,0 +1,11 @@
+{
+  "baseline_expected": "fail",
+  "category": "Minimal Diff and Reviewability",
+  "id": "hyg-051-preserve-user-edits",
+  "pass_stat": "unittest_exit_zero_and_protected_files_unchanged",
+  "prompt_id": "HYG-051",
+  "protected_files": ["notes/user_notes.md"],
+  "repo_dir": "repo",
+  "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+  "title": "Fix a bug while preserving unrelated user notes"
+}

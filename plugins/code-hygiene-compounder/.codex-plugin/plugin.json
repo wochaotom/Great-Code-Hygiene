@@ -1,0 +1,36 @@
+{
+  "name": "code-hygiene-compounder",
+  "version": "0.1.0",
+  "description": "Code hygiene workflow, PASS-100 scoring, and source-grounded compounding for coding agents.",
+  "author": {
+    "name": "Great Code Hygiene Maintainers",
+    "url": "https://github.com/wochaotom/Great-Code-Hygiene"
+  },
+  "homepage": "https://github.com/wochaotom/Great-Code-Hygiene#readme",
+  "repository": "https://github.com/wochaotom/Great-Code-Hygiene",
+  "keywords": [
+    "code-hygiene",
+    "code-review",
+    "testing",
+    "pass-100"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Code Hygiene Compounder",
+    "shortDescription": "Review, harden, test, and improve code hygiene",
+    "longDescription": "Use Code Hygiene Compounder for code review, cleanup, hardening, deterministic bug feedback loops, verification evidence, PASS-100 scoring, and source-grounded training loops.",
+    "developerName": "Great Code Hygiene Maintainers",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/wochaotom/Great-Code-Hygiene",
+    "defaultPrompt": [
+      "Review this repo with Code Hygiene Compounder",
+      "Scrub this codebase and report verification evidence",
+      "Run the code hygiene package checks"
+    ],
+    "brandColor": "#0F766E"
+  }
+}

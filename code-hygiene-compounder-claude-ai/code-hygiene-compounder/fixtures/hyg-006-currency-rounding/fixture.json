@@ -1,0 +1,11 @@
+{
+  "baseline_expected": "fail",
+  "category": "Correctness and Regressions",
+  "id": "hyg-006-currency-rounding",
+  "pass_stat": "unittest_exit_zero",
+  "prompt_id": "HYG-006",
+  "protected_files": [],
+  "repo_dir": "repo",
+  "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+  "title": "Correct currency rounding without floating-point regressions"
+}

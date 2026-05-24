@@ -1,0 +1,11 @@
+{
+  "baseline_expected": "fail",
+  "category": "Test Quality",
+  "id": "hyg-019-migration-forward-rollback",
+  "pass_stat": "unittest_exit_zero_and_protected_files_unchanged",
+  "prompt_id": "HYG-019",
+  "protected_files": ["tests/test_contract_rollback_coverage.py"],
+  "repo_dir": "repo",
+  "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+  "title": "Add rollback coverage for schema migrations"
+}

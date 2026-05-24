@@ -1,0 +1,11 @@
+{
+  "baseline_expected": "fail",
+  "category": "Agent Process Hygiene",
+  "id": "hyg-096-source-audit-http-domain",
+  "pass_stat": "unittest_exit_zero",
+  "prompt_id": "HYG-096",
+  "protected_files": [],
+  "repo_dir": "repo",
+  "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+  "title": "Keep newly admitted HTTP source packs reachable through source-audit domains"
+}

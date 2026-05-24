@@ -1,0 +1,37 @@
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Training and temporary run outputs
+runs/
+.fixture-tmp/
+.fixture-work/
+*.log
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Scheduled automation runtime history
+reports/scheduled-loop/**
+tools/headless-scheduler/
+
+# Local research scratch
+_knowledge_base/
+.memsearch/
+
+# Local planning/evidence scratch
+docs/superpowers/
+docs/training-gates/
+
+# Generated package artifacts
+*.zip
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

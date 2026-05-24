@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Great Code Hygiene context index",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "root",
+    "files"
+  ],
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "role",
+          "domains",
+          "read_when",
+          "sha256",
+          "lines",
+          "words",
+          "sections"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "read_when": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "words": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "heading",
+                "lines",
+                "domains"
+              ],
+              "properties": {
+                "heading": {
+                  "type": "string"
+                },
+                "lines": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "domains": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

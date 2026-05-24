@@ -1,0 +1,28 @@
+---
+description: Use Great Code Hygiene for code review, cleanup, debugging, hardening, tests, and verification evidence.
+globs:
+alwaysApply: false
+---
+
+# Great Code Hygiene
+
+Use this rule when the user asks Cursor to review, debug, fix, refactor, clean
+up, harden, test, verify, or package code with Code Hygiene.
+
+## Workflow
+
+1. Read repo instructions, relevant code, tests, manifests, docs, and local
+   patterns before editing.
+2. For bugs, regressions, or flaky behavior, build the smallest deterministic
+   feedback loop before fixing. The target is the smallest deterministic feedback loop
+   that reproduces or verifies the behavior. Use a focused test, CLI/script
+   harness, UI automation, replayed fixture, or captured trace when feasible.
+3. Preserve unrelated user edits and keep the change narrowly scoped.
+4. Make one behavior-correct change at a time. Avoid broad rewrites, formatting
+   churn, dependency noise, and speculative cleanup.
+5. Verify with the narrowest meaningful check first, then broaden only when
+   shared behavior, public APIs, security/data, config, packaging, or migrations
+   warrant it.
+6. Do not claim complete, passing, fixed, safe, or ready without fresh evidence.
+
+For the full reusable skill, use `.cursor/skills/code-hygiene/SKILL.md`.

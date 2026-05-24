@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Hygiene Compounder"
+  short_description: "Auto-improving code hygiene workflow with deterministic feedback loops and PASS-100 scoring."
+  default_prompt: "Use this skill to improve code hygiene, build deterministic feedback loops for bugs before fixing when feasible, run PASS-100 evaluations, and compound lessons into a stronger agent workflow."

@@ -1,0 +1,76 @@
+name: hygiene
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  package-and-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate package shape
+        run: python code-hygiene-compounder/scripts/validate_package.py --repo-root .
+
+      - name: Smoke export Claude AI package
+        run: python code-hygiene-compounder/scripts/export_claude_package.py --skill-root code-hygiene-compounder --out-dir "${{ runner.temp }}/export-smoke" --format claude-ai-skill --zip-name code-hygiene-compounder-claude-ai.zip
+
+      - name: Check overtraining guardrails
+        run: python code-hygiene-compounder/scripts/guardrail_check.py --skill-root code-hygiene-compounder
+
+      - name: Validate PASS-100 prompt suite
+        run: python code-hygiene-compounder/scripts/pass100_runner.py list --suite code-hygiene-compounder/references/eval-prompts.md
+
+      - name: Validate fixture metadata
+        run: python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures validate --suite code-hygiene-compounder/references/eval-prompts.md
+
+      - name: Confirm fixture baselines
+        run: python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures baseline
+
+      - name: Exercise PASS-100 result tooling
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          categories = {
+              "correctness": 15,
+              "tests": 15,
+              "maintainability": 15,
+              "security": 10,
+              "local_integration": 10,
+              "minimal_diff": 10,
+              "observability": 10,
+              "documentation": 5,
+              "dependencies": 5,
+              "agent_process": 5,
+          }
+          payload = {
+              "run_id": "ci-script-only",
+              "run_type": "script-only",
+              "phase": 0,
+              "prompt_ids": ["HYG-001"],
+              "scores": [
+                  {
+                      "prompt_id": "HYG-001",
+                      "total": 100,
+                      "categories": categories,
+                      "deductions": [],
+                      "lessons": [],
+                  }
+              ],
+          }
+          out = Path("ci-pass100-result.json")
+          out.write_text(json.dumps(payload), encoding="utf-8")
+
+      - name: Validate PASS-100 result schema
+        run: python code-hygiene-compounder/scripts/validate_results.py --results ci-pass100-result.json --suite code-hygiene-compounder/references/eval-prompts.md --source-weights code-hygiene-compounder/references/source-weights.json
+
+      - name: Analyze PASS-100 run
+        run: python code-hygiene-compounder/scripts/analyze_runs.py --results ci-pass100-result.json --suite code-hygiene-compounder/references/eval-prompts.md --source-weights code-hygiene-compounder/references/source-weights.json

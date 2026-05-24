@@ -1,0 +1,2 @@
+Legacy command package. Copy the .claude folder into your Claude Code project or home configuration.
+Then run /code-hygiene when you want the workflow.

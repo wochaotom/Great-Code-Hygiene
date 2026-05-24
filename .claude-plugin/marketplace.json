@@ -1,0 +1,24 @@
+{
+  "name": "great-code-hygiene",
+  "description": "Code hygiene skills and packaging for Claude Code.",
+  "owner": {
+    "name": "Great Code Hygiene Maintainers"
+  },
+  "plugins": [
+    {
+      "name": "code-hygiene-compounder",
+      "source": "./code-hygiene-compounder",
+      "description": "Code hygiene workflow, PASS-100 scoring, and source-grounded compounding for Claude Code.",
+      "author": {
+        "name": "Great Code Hygiene Maintainers"
+      },
+      "repository": "https://github.com/wochaotom/Great-Code-Hygiene",
+      "keywords": [
+        "code-hygiene",
+        "code-review",
+        "testing",
+        "pass-100"
+      ]
+    }
+  ]
+}

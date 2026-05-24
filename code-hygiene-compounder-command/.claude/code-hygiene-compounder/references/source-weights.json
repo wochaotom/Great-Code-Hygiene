@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "purpose": "Weight authoritative sources for code hygiene training without letting conditional guidance distort unrelated tasks.",
+  "weights": [
+    {
+      "id": "google-eng-practices",
+      "name": "Google Engineering Practices",
+      "default_weight": 1.0,
+      "scope": ["review", "maintainability", "correctness", "tests", "documentation", "process"],
+      "activation": "always"
+    },
+    {
+      "id": "google-testing",
+      "name": "Google Testing Blog testing pyramid",
+      "default_weight": 0.9,
+      "scope": ["tests", "feedback-loop", "regression"],
+      "activation": "always"
+    },
+    {
+      "id": "nist-ssdf",
+      "name": "NIST SSDF SP 800-218",
+      "default_weight": 1.0,
+      "scope": ["secure-sdlc", "vulnerability-reduction", "response"],
+      "activation": "security_core"
+    },
+    {
+      "id": "owasp-secure-coding",
+      "name": "OWASP Secure Coding Practices",
+      "default_weight": 1.0,
+      "scope": ["input-validation", "output-encoding", "auth", "crypto", "logging", "data-protection", "database", "files", "memory"],
+      "activation": "security_core"
+    },
+    {
+      "id": "owasp-asvs",
+      "name": "OWASP ASVS",
+      "default_weight": 0.95,
+      "scope": ["web-security", "verification", "security-requirements"],
+      "activation": "web_or_api_security"
+    },
+    {
+      "id": "cisa-secure-by-design",
+      "name": "CISA Secure by Design",
+      "default_weight": 0.9,
+      "scope": ["secure-defaults", "product-accountability", "user-outcomes"],
+      "activation": "security_or_product_design"
+    },
+    {
+      "id": "microsoft-sdl",
+      "name": "Microsoft SDL",
+      "default_weight": 0.9,
+      "scope": ["threat-modeling", "secure-verification", "release", "response"],
+      "activation": "security_or_release"
+    },
+    {
+      "id": "mitre-cwe-top25",
+      "name": "MITRE CWE Top 25",
+      "default_weight": 1.0,
+      "scope": ["weakness-prioritization", "exploitability", "root-cause"],
+      "activation": "security_core"
+    },
+    {
+      "id": "sei-cert",
+      "name": "SEI CERT Secure Coding Standards",
+      "default_weight": 0.85,
+      "scope": ["language-secure-coding", "undefined-behavior", "memory-safety", "concurrency"],
+      "activation": "language_specific_or_security"
+    },
+    {
+      "id": "google-style-guides",
+      "name": "Google Style Guides",
+      "default_weight": 0.55,
+      "scope": ["style", "readability", "language-conventions"],
+      "activation": "when_local_style_unclear"
+    },
+    {
+      "id": "google-developer-docs-style",
+      "name": "Google Developer Documentation Style Guide",
+      "default_weight": 0.6,
+      "scope": ["documentation", "developer-docs", "readability", "examples", "accessibility", "procedures"],
+      "activation": "developer_documentation"
+    },
+    {
+      "id": "python-core-docs",
+      "name": "Python Core Docs and PEPs",
+      "default_weight": 0.85,
+      "scope": ["python", "exceptions", "paths", "subprocess", "style", "docstrings", "typing"],
+      "activation": "python_language"
+    },
+    {
+      "id": "python-testing-packaging",
+      "name": "Python Testing and Packaging",
+      "default_weight": 0.8,
+      "scope": ["python", "pytest", "packaging", "pyproject", "dependencies", "test-layout"],
+      "activation": "python_tests_or_package"
+    },
+    {
+      "id": "twelve-factor-config",
+      "name": "Twelve-Factor App Config",
+      "default_weight": 0.75,
+      "scope": ["config", "environment", "secrets", "deploys"],
+      "activation": "config_or_deploy"
+    },
+    {
+      "id": "slsa",
+      "name": "SLSA",
+      "default_weight": 0.8,
+      "scope": ["supply-chain", "build-provenance", "artifact-integrity"],
+      "activation": "build_release_or_supply_chain"
+    },
+    {
+      "id": "openssf-scorecard",
+      "name": "OpenSSF Scorecard",
+      "default_weight": 0.7,
+      "scope": ["repo-security-health", "dependency-risk", "oss-project-risk"],
+      "activation": "oss_or_dependency_risk"
+    },
+    {
+      "id": "opentelemetry",
+      "name": "OpenTelemetry",
+      "default_weight": 0.65,
+      "scope": ["observability", "logs", "metrics", "traces", "correlation"],
+      "activation": "observability"
+    },
+    {
+      "id": "wcag-22",
+      "name": "W3C WCAG 2.2",
+      "default_weight": 0.8,
+      "scope": ["accessibility", "frontend", "forms", "interaction"],
+      "activation": "web_ui"
+    },
+    {
+      "id": "microsoft-rest-api-guidelines",
+      "name": "Microsoft REST API Guidelines",
+      "default_weight": 0.65,
+      "scope": ["api-design", "compatibility", "pagination", "errors", "versioning"],
+      "activation": "rest_api"
+    },
+    {
+      "id": "rfc9110-http-semantics",
+      "name": "RFC 9110 HTTP Semantics",
+      "default_weight": 0.7,
+      "scope": ["http", "headers", "protocol-compatibility", "field-values"],
+      "activation": "http_protocol"
+    },
+    {
+      "id": "semver",
+      "name": "Semantic Versioning",
+      "default_weight": 0.6,
+      "scope": ["versioning", "public-api", "packages"],
+      "activation": "public_package_or_sdk"
+    },
+    {
+      "id": "llm-provider-schema-docs",
+      "name": "LLM Provider Tool and Structured Output Documentation",
+      "default_weight": 0.65,
+      "scope": ["llm", "ai-tools", "tool-schema", "structured-output", "provider-compatibility", "json-schema"],
+      "activation": "llm_tool_schema"
+    },
+    {
+      "id": "nasa-jpl-power-of-ten",
+      "name": "NASA/JPL Power of Ten",
+      "default_weight": 0.45,
+      "scope": ["safety-critical", "embedded", "verifiability", "static-analysis"],
+      "activation": "safety_critical_only"
+    },
+    {
+      "id": "agent-eval-methodology",
+      "name": "Agent Evaluation Methodology",
+      "default_weight": 0.85,
+      "scope": [
+        "eval-design",
+        "continuous-evaluation",
+        "grading",
+        "trace-evaluation",
+        "plan-adherence",
+        "tool-use",
+        "error-localization"
+      ],
+      "activation": "training_loop"
+    }
+  ]
+}
