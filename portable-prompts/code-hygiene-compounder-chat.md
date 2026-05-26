@@ -499,3 +499,7 @@ Durable lessons promoted from scored target-dummy runs. Keep entries short, sour
 ## 2026-05-26: Installed Runtime Skill Parity
 
 - Installed/runtime skill parity: before serious training, evaluation, or model-execution runs, verify the installed skill copy matches canonical source or explicitly record the intentionally isolated runtime version; stale installed copies can preserve removed doctrine, sources, scripts, or references and compromise evidence. Source basis: SLSA artifact integrity, NIST SSDF release artifact protection, OpenAI eval setup logging.
+
+## 2026-05-26: Durable Contract Regression Tests
+
+- Contract-bullet fixes: when explicit SPEC/contract bullets expose behavior missing from a green visible suite, a throwaway CLI/script repro can be the pre-fix loop but should not replace durable focused regression tests for the changed bullets; if durable tests are not added, the evidence report should say why. Source basis: Google Testing behavior assertions, OpenAI eval logging, Anthropic clear success criteria.

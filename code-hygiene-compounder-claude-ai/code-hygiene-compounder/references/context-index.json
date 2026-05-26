@@ -2697,7 +2697,7 @@
         "promotion",
         "training"
       ],
-      "lines": 260,
+      "lines": 264,
       "path": "references/training-lessons.md",
       "read_when": [
         "activating source packs by domain",
@@ -3362,12 +3362,24 @@
           "heading": "2026-05-26: Installed Runtime Skill Parity",
           "lines": [
             258,
-            260
+            261
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-05-26: Durable Contract Regression Tests",
+          "lines": [
+            262,
+            264
           ]
         }
       ],
-      "sha256": "1775c8b4cef755c328be9d44a01c273c579485723673e4ed3a029a525ddf3595",
-      "words": 5093
+      "sha256": "828693d482485b1e633a9564ed87968ea17888bc55e9d4892953e6e9a1489460",
+      "words": 5160
     }
   ],
   "generated_at": "1970-01-01T00:00:00+00:00",
