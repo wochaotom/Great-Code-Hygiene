@@ -495,3 +495,7 @@ Durable lessons promoted from scored target-dummy runs. Keep entries short, sour
 
 - Public-repository cleanup: before calling a repo public-clean, inspect reachable remote refs, tags, and branch history as well as current files; removed current-tree artifacts can remain exposed through old commits, tags, release branches, or marketplace refs. Source basis: NIST SSDF source/release artifact protection, SLSA provenance integrity, OpenSSF Scorecard branch/release posture.
 - Release proof after ref cleanup: when refs are rewritten or tags removed for public readiness, verify the remote ref/tag list, targeted current-tree scans, reachable-history scans, package validation, and CI/status on the final commit; record line-ending or normalization follow-ups separately from public-content risk. Source basis: SLSA artifact verification, OpenAI eval logging, Google Testing failure isolation.
+
+## 2026-05-26: Installed Runtime Skill Parity
+
+- Installed/runtime skill parity: before serious training, evaluation, or model-execution runs, verify the installed skill copy matches canonical source or explicitly record the intentionally isolated runtime version; stale installed copies can preserve removed doctrine, sources, scripts, or references and compromise evidence. Source basis: SLSA artifact integrity, NIST SSDF release artifact protection, OpenAI eval setup logging.

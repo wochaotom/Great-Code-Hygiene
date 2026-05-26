@@ -303,7 +303,7 @@
         "promotion",
         "training"
       ],
-      "lines": 94,
+      "lines": 96,
       "path": "references/compound-loop.md",
       "read_when": [
         "activating source packs by domain",
@@ -356,7 +356,7 @@
           "heading": "Full-Auto Cycle",
           "lines": [
             15,
-            32
+            33
           ]
         },
         {
@@ -367,8 +367,8 @@
           ],
           "heading": "Run Types",
           "lines": [
-            33,
-            44
+            34,
+            45
           ]
         },
         {
@@ -379,8 +379,8 @@
           ],
           "heading": "Hard-Mode Real-Code Evidence",
           "lines": [
-            45,
-            52
+            46,
+            53
           ]
         },
         {
@@ -391,8 +391,8 @@
           ],
           "heading": "Promotion Gates",
           "lines": [
-            53,
-            70
+            54,
+            72
           ]
         },
         {
@@ -403,8 +403,8 @@
           ],
           "heading": "Rejection Reasons",
           "lines": [
-            71,
-            80
+            73,
+            82
           ]
         },
         {
@@ -415,8 +415,8 @@
           ],
           "heading": "Phase Advancement",
           "lines": [
-            81,
-            86
+            83,
+            88
           ]
         },
         {
@@ -427,13 +427,13 @@
           ],
           "heading": "Final Candidate Criteria",
           "lines": [
-            87,
-            94
+            89,
+            96
           ]
         }
       ],
-      "sha256": "a15e81349e0bb67236dcc071e4978b5480298ab3317b69eb832db4bdcda25bbb",
-      "words": 880
+      "sha256": "629ed3a983f8d188215349b49a09115b3ccf21dc592c84b9b46b0202f5d1e636",
+      "words": 921
     },
     {
       "domains": [
@@ -2697,7 +2697,7 @@
         "promotion",
         "training"
       ],
-      "lines": 256,
+      "lines": 260,
       "path": "references/training-lessons.md",
       "read_when": [
         "activating source packs by domain",
@@ -3350,12 +3350,24 @@
           "heading": "2026-05-26: Public Release Reachability Scrub",
           "lines": [
             253,
-            256
+            257
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-05-26: Installed Runtime Skill Parity",
+          "lines": [
+            258,
+            260
           ]
         }
       ],
-      "sha256": "3a42f04a5e5e43d1aa62a2b91fe3c5bd1557396842f41425bd4fe047b145e8f2",
-      "words": 5032
+      "sha256": "1775c8b4cef755c328be9d44a01c273c579485723673e4ed3a029a525ddf3595",
+      "words": 5093
     }
   ],
   "generated_at": "1970-01-01T00:00:00+00:00",

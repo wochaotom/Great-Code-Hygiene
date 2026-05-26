@@ -17,18 +17,19 @@ Use this protocol to improve the skill without letting it drift.
 1. Select batch: smoke, focused, regression, or full phase.
 2. Generate a source audit plan from the task domains.
 3. Read every activated source pack individually.
-4. Run tasks using the current skill.
-5. For bug, regression, or flaky-behavior tasks, record the deterministic feedback loop used before the fix, or the concrete blocker that made no loop possible.
-6. Score each result with PASS-100.
-7. Validate result JSON and analyze statistics, including confidence intervals and baseline deltas when available.
-8. Run matching executable fixtures when the prompt has an objective fixture.
-9. Run overtraining guardrails before adding instructions, sources, or fixtures.
-10. Extract candidate lessons from concrete failures only.
-11. Draft a candidate skill update.
-12. Validate the candidate folder structure.
-13. Re-run the same batch and any recent failure regressions.
-14. Promote only if gates pass.
-15. Log the generation, sources activated, scores, accepted/rejected decision, feedback-loop evidence, and lesson evidence.
+4. Before serious installed-skill or model-execution runs, verify the runtime skill copy matches canonical source, or record the intentionally isolated version.
+5. Run tasks using the current skill.
+6. For bug, regression, or flaky-behavior tasks, record the deterministic feedback loop used before the fix, or the concrete blocker that made no loop possible.
+7. Score each result with PASS-100.
+8. Validate result JSON and analyze statistics, including confidence intervals and baseline deltas when available.
+9. Run matching executable fixtures when the prompt has an objective fixture.
+10. Run overtraining guardrails before adding instructions, sources, or fixtures.
+11. Extract candidate lessons from concrete failures only.
+12. Draft a candidate skill update.
+13. Validate the candidate folder structure.
+14. Re-run the same batch and any recent failure regressions.
+15. Promote only if gates pass.
+16. Log the generation, sources activated, scores, accepted/rejected decision, feedback-loop evidence, and lesson evidence.
 
 ## Run Types
 
@@ -57,6 +58,7 @@ Promote automatically only when all conditions hold:
 - Skill validation passes.
 - PASS-100 result validation passes.
 - Overtraining guardrails pass.
+- Installed/runtime skill parity is verified for serious installed-skill or model-execution evidence, unless the isolated runtime version is explicitly recorded.
 - Average score does not regress.
 - Correctness, tests, security, and minimal diff categories do not regress on critical prompts.
 - Matching executable fixtures pass when they exist for the failed or changed prompt category.
