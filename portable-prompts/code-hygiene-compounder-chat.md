@@ -54,6 +54,8 @@ Use this file for ordinary code review, refactor, cleanup, hardening, and implem
 
 For package validation, fixture generation, matrix generation, exports, or context indexing changes, report runtime before and after when scale can be affected. Do not require timing gates for ordinary small code fixes.
 
+For public repository or marketplace release scrubs, verify current files plus reachable remote refs, tags, and history; final CI/status belongs in the evidence before calling the public surface clean.
+
 ## High-Signal Anti-Patterns
 
 - Hard-coded secrets or deploy-varying config.
@@ -488,3 +490,8 @@ Durable lessons promoted from scored target-dummy runs. Keep entries short, sour
 ## 2026-05-22: HYG-083 Config Precedence Controls
 
 - Config/default/precedence fixes should test the intended winning source plus at least one absence or fallback control when the contract distinguishes defaults, files, environment variables, or overrides; otherwise the regression can prove only the reported key while missing the source-boundary contract. Source basis: Twelve-Factor config, Google Testing behavior coverage, Google Engineering Practices functionality review.
+
+## 2026-05-26: Public Release Reachability Scrub
+
+- Public-repository cleanup: before calling a repo public-clean, inspect reachable remote refs, tags, and branch history as well as current files; removed current-tree artifacts can remain exposed through old commits, tags, release branches, or marketplace refs. Source basis: NIST SSDF source/release artifact protection, SLSA provenance integrity, OpenSSF Scorecard branch/release posture.
+- Release proof after ref cleanup: when refs are rewritten or tags removed for public readiness, verify the remote ref/tag list, targeted current-tree scans, reachable-history scans, package validation, and CI/status on the final commit; record line-ending or normalization follow-ups separately from public-content risk. Source basis: SLSA artifact verification, OpenAI eval logging, Google Testing failure isolation.

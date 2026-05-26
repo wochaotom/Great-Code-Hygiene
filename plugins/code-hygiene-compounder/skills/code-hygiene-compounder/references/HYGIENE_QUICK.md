@@ -13,6 +13,8 @@ Use this file for ordinary code review, refactor, cleanup, hardening, and implem
 
 For package validation, fixture generation, matrix generation, exports, or context indexing changes, report runtime before and after when scale can be affected. Do not require timing gates for ordinary small code fixes.
 
+For public repository or marketplace release scrubs, verify current files plus reachable remote refs, tags, and history; final CI/status belongs in the evidence before calling the public surface clean.
+
 ## High-Signal Anti-Patterns
 
 - Hard-coded secrets or deploy-varying config.

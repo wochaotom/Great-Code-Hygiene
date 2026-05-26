@@ -110,7 +110,7 @@
         "daily-hygiene",
         "routing"
       ],
-      "lines": 27,
+      "lines": 29,
       "path": "references/HYGIENE_QUICK.md",
       "read_when": [
         "activating source packs by domain",
@@ -149,7 +149,7 @@
           "heading": "Quick Loop",
           "lines": [
             5,
-            15
+            17
           ]
         },
         {
@@ -159,13 +159,13 @@
           ],
           "heading": "High-Signal Anti-Patterns",
           "lines": [
-            16,
-            27
+            18,
+            29
           ]
         }
       ],
-      "sha256": "e9ca211739451b3bc2da964e6520954e202f21c6d79351a550b4b3ab93b9158f",
-      "words": 321
+      "sha256": "36c006bd157c8a6793785dd7151d4c006573ed6e346b36126fa17e3a9da0e9b3",
+      "words": 350
     },
     {
       "domains": [
@@ -2697,7 +2697,7 @@
         "promotion",
         "training"
       ],
-      "lines": 251,
+      "lines": 256,
       "path": "references/training-lessons.md",
       "read_when": [
         "activating source packs by domain",
@@ -3338,12 +3338,24 @@
           "heading": "2026-05-22: HYG-083 Config Precedence Controls",
           "lines": [
             249,
-            251
+            252
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-05-26: Public Release Reachability Scrub",
+          "lines": [
+            253,
+            256
           ]
         }
       ],
-      "sha256": "b55750618cbb224640d29c4261ee95106e2095ac4a37f65b9b432f33b6ad026b",
-      "words": 4921
+      "sha256": "3a42f04a5e5e43d1aa62a2b91fe3c5bd1557396842f41425bd4fe047b145e8f2",
+      "words": 5032
     }
   ],
   "generated_at": "1970-01-01T00:00:00+00:00",
