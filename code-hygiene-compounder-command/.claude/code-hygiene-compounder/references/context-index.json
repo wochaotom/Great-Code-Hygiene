@@ -2697,7 +2697,7 @@
         "promotion",
         "training"
       ],
-      "lines": 264,
+      "lines": 268,
       "path": "references/training-lessons.md",
       "read_when": [
         "activating source packs by domain",
@@ -3374,12 +3374,24 @@
           "heading": "2026-05-26: Durable Contract Regression Tests",
           "lines": [
             262,
-            264
+            265
+          ]
+        },
+        {
+          "domains": [
+            "guardrails",
+            "promotion",
+            "training"
+          ],
+          "heading": "2026-06-02: Python Gate Interpreter Identity",
+          "lines": [
+            266,
+            268
           ]
         }
       ],
-      "sha256": "828693d482485b1e633a9564ed87968ea17888bc55e9d4892953e6e9a1489460",
-      "words": 5160
+      "sha256": "1edf845e57ca6d315c3b2042aea3e8776ce5bd2330a20240266b20a242294da5",
+      "words": 5228
     }
   ],
   "generated_at": "1970-01-01T00:00:00+00:00",

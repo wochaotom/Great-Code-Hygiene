@@ -262,3 +262,7 @@ Durable lessons promoted from scored target-dummy runs. Keep entries short, sour
 ## 2026-05-26: Durable Contract Regression Tests
 
 - Contract-bullet fixes: when explicit SPEC/contract bullets expose behavior missing from a green visible suite, a throwaway CLI/script repro can be the pre-fix loop but should not replace durable focused regression tests for the changed bullets; if durable tests are not added, the evidence report should say why. Source basis: Google Testing behavior assertions, OpenAI eval logging, Anthropic clear success criteria.
+
+## 2026-06-02: Python Gate Interpreter Identity
+
+- Python-backed validation gates: when a gate fails before reaching package or skill logic, verify the resolved interpreter identity before treating it as a repo failure; on Windows, if `python` resolves to the Microsoft Store `WindowsApps` alias, rerun with the active project or bundled interpreter and record both paths/results. Source basis: Python Testing and Packaging, NIST repeatable practices, OpenAI eval setup logging.
