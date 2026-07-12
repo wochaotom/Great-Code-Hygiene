@@ -131,6 +131,7 @@ Codex:
 
 ```bash
 codex plugin marketplace add wochaotom/Great-Code-Hygiene
+codex plugin add code-hygiene-compounder@great-code-hygiene
 ```
 
 Use the `npx skills` commands above when you want the clean function-only

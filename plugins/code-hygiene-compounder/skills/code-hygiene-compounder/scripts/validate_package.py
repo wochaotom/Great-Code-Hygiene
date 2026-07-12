@@ -31,6 +31,10 @@ CODEX_PLUGIN_SOURCE = './plugins/code-hygiene-compounder'
 CODEX_PLUGIN_VERSION = '0.1.0'
 PLUGIN_SOURCE = './code-hygiene-compounder'
 PLUGIN_REPOSITORY = 'https://github.com/wochaotom/Great-Code-Hygiene'
+MAX_RELATIVE_PATH_LENGTH = 140
+CODEX_MARKETPLACE_COMMAND = 'codex plugin marketplace add wochaotom/Great-Code-Hygiene'
+CODEX_INSTALL_COMMAND = 'codex plugin add code-hygiene-compounder@great-code-hygiene'
+PUBLIC_DOCS = (Path('README.md'), Path('docs/power-users.md'))
 OPENAI_AGENT_REQUIRED_SNIPPETS = ('deterministic feedback loops', 'PASS-100')
 COMMAND_REQUIRED_SNIPPETS = ('smallest deterministic feedback loop', 'evidence-report.md', 'Do not trust agent reports')
 CACHE_DIR_NAMES = {'__pycache__', '.pytest_cache', '.mypy_cache'}
@@ -60,17 +64,14 @@ def iter_visible_dirs(root: Path) -> list[Path]:
         current_path = Path(current)
         dirs.extend((current_path / name for name in visible))
     return dirs
-
 def visible_paths(root: Path, pattern: str) -> list[Path]:
     return [path for path in iter_visible_files(root) if fnmatch.fnmatch(path.name, pattern)]
-
 def file_digest(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as handle:
         for chunk in iter(lambda: handle.read(65536), b''):
             digest.update(chunk)
     return digest.hexdigest()
-
 def tree_fingerprint(root: Path) -> dict[str, str]:
     files: dict[str, str] = {}
     for current, dirnames, filenames in os.walk(root):
@@ -83,14 +84,11 @@ def tree_fingerprint(root: Path) -> dict[str, str]:
                 continue
             files[relative.as_posix()] = file_digest(path)
     return files
-
 def read_text(path: Path) -> str:
     return path.read_text(encoding='utf-8-sig').replace('\r\n', '\n')
-
 def expect(errors: list[str], bad: bool, message: str) -> None:
     if bad:
         errors.append(message)
-
 def check_expected_set(actual: set[Path], expected: set[Path], label: str, ok_detail: str, reporter: 'Reporter') -> None:
     extra = sorted(actual - expected)
     missing = sorted(expected - actual)
@@ -103,21 +101,16 @@ def check_expected_set(actual: set[Path], expected: set[Path], label: str, ok_de
     if missing:
         details.append('missing: ' + ', '.join((path.as_posix() for path in missing)))
     reporter.fail_check(label, '; '.join(details))
-
 class Reporter:
-
     def __init__(self) -> None:
         self.checks: list[dict[str, str]] = []
         self.errors: list[str] = []
         self.warnings: list[str] = []
-
     def pass_check(self, name: str, detail: str) -> None:
         self.checks.append({'name': name, 'status': 'pass', 'detail': detail})
-
     def fail_check(self, name: str, detail: str) -> None:
         self.checks.append({'name': name, 'status': 'fail', 'detail': detail})
         self.errors.append(f'{name}: {detail}')
-
 def check_expected_paths(repo_root: Path, reporter: Reporter) -> None:
     for label, relative in PACKAGE_DIRS.items():
         path = repo_root / relative
@@ -131,7 +124,6 @@ def check_expected_paths(repo_root: Path, reporter: Reporter) -> None:
             reporter.pass_check('expected file', f'found {relative.as_posix()}')
         else:
             reporter.fail_check('expected file', f'missing {relative.as_posix()}')
-
 def check_instance_counts(repo_root: Path, reporter: Reporter) -> None:
     skill_files = {normalize_relative(path, repo_root) for path in visible_paths(repo_root, 'SKILL.md')}
     check_expected_set(skill_files, EXPECTED_SKILL_FILES, 'skill instance count', 'found trainer, clean, skeleton, Codex plugin, Claude AI, Cursor, and Antigravity skills', reporter)
@@ -141,7 +133,6 @@ def check_instance_counts(repo_root: Path, reporter: Reporter) -> None:
     check_expected_set(cursor_rule_files, EXPECTED_CURSOR_RULE_FILES, 'Cursor rule count', 'found exactly one Cursor rule', reporter)
     prompt_files = {normalize_relative(path, repo_root) for path in (repo_root / 'portable-prompts').glob('*.md') if path.is_file()}
     check_expected_set(prompt_files, EXPECTED_PROMPTS, 'chat prompt count', 'found exactly one portable chat prompt', reporter)
-
 def check_native_ai_entrypoints(repo_root: Path, reporter: Reporter) -> None:
     clean_skill_path = repo_root / 'code-hygiene' / 'SKILL.md'
     if clean_skill_path.is_file():
@@ -168,7 +159,6 @@ def check_native_ai_entrypoints(repo_root: Path, reporter: Reporter) -> None:
             reporter.fail_check('Cursor rule content', f"{relative.as_posix()} missing required text: {', '.join(missing)}")
         else:
             reporter.pass_check('Cursor rule content', f'{relative.as_posix()} includes workflow and skill link')
-
 def check_portable_prompt_content(repo_root: Path, reporter: Reporter) -> None:
     for relative in EXPECTED_PROMPTS:
         path = repo_root / relative
@@ -180,7 +170,6 @@ def check_portable_prompt_content(repo_root: Path, reporter: Reporter) -> None:
             reporter.fail_check('portable prompt sync', f'{relative.as_posix()} is stale; regenerate with export_claude_package.py --format portable-prompt')
         else:
             reporter.pass_check('portable prompt sync', f'{relative.as_posix()} matches generated prompt')
-
 def check_entrypoint_content(repo_root: Path, reporter: Reporter) -> None:
     for relative in EXPECTED_AGENT_FILES:
         path = repo_root / relative
@@ -206,7 +195,6 @@ def check_entrypoint_content(repo_root: Path, reporter: Reporter) -> None:
             reporter.fail_check('install text', f'{relative.as_posix()} contains non-deterministic export timestamp')
         else:
             reporter.pass_check('install text', f'{relative.as_posix()} is deterministic')
-
 def load_json(path: Path, repo_root: Path, label: str, reporter: Reporter) -> dict | None:
     try:
         payload = json.loads(path.read_text(encoding='utf-8-sig'))
@@ -217,7 +205,6 @@ def load_json(path: Path, repo_root: Path, label: str, reporter: Reporter) -> di
         reporter.fail_check(label, f'{path.name} must contain a JSON object')
         return None
     return payload
-
 def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
     marketplace_path = repo_root / '.claude-plugin' / 'marketplace.json'
     manifest_path = repo_root / PACKAGE_DIRS['codex_skill'] / '.claude-plugin' / 'plugin.json'
@@ -244,7 +231,6 @@ def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None
         reporter.fail_check('Claude plugin marketplace', '; '.join(errors))
     else:
         reporter.pass_check('Claude plugin marketplace', 'marketplace and plugin manifest use commit-SHA versioning')
-
 def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
     marketplace_path = repo_root / '.agents' / 'plugins' / 'marketplace.json'
     manifest_path = repo_root / 'plugins' / PLUGIN_NAME / '.codex-plugin' / 'plugin.json'
@@ -273,7 +259,26 @@ def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
         reporter.fail_check('Codex plugin marketplace', '; '.join(errors))
     else:
         reporter.pass_check('Codex plugin marketplace', 'marketplace and plugin manifest are public-ready')
-
+def check_public_docs(repo_root: Path, reporter: Reporter) -> None:
+    errors: list[str] = []
+    for relative in PUBLIC_DOCS:
+        path = repo_root / relative
+        text = read_text(path) if path.is_file() else ''
+        missing = [snippet for snippet in (CODEX_MARKETPLACE_COMMAND, CODEX_INSTALL_COMMAND) if snippet not in text]
+        if missing:
+            errors.append(f"{relative.as_posix()} missing required install text: {', '.join(missing)}")
+    if errors:
+        reporter.fail_check('public docs install commands', '; '.join(errors))
+    else:
+        reporter.pass_check('public docs install commands', 'Codex marketplace registration and plugin installation are documented')
+def check_path_budget(repo_root: Path, reporter: Reporter) -> None:
+    relative_paths = [normalize_relative(path, repo_root) for path in iter_visible_files(repo_root) + iter_visible_dirs(repo_root)]
+    over_budget = sorted((path for path in relative_paths if len(path.as_posix()) > MAX_RELATIVE_PATH_LENGTH), key=lambda path: (-len(path.as_posix()), path.as_posix()))
+    if over_budget:
+        sample = ', '.join(f'{path.as_posix()} ({len(path.as_posix())})' for path in over_budget[:8])
+        reporter.fail_check('path budget', f'relative paths must be <= {MAX_RELATIVE_PATH_LENGTH} chars; over budget: {sample}')
+    else:
+        reporter.pass_check('path budget', f'all visible relative paths are <= {MAX_RELATIVE_PATH_LENGTH} chars')
 def check_generated_artifacts(repo_root: Path, allow_runs: bool, reporter: Reporter) -> None:
     bad_files = []
     for pattern in GENERATED_FILE_PATTERNS:
@@ -292,7 +297,6 @@ def check_generated_artifacts(repo_root: Path, allow_runs: bool, reporter: Repor
         reporter.fail_check('generated directories', f'remove generated directories: {detail}')
     else:
         reporter.pass_check('generated directories', 'no cache or run directories found')
-
 def check_source_packs(codex_root: Path, reporter: Reporter) -> None:
     weights_path = codex_root / 'references' / 'source-weights.json'
     packs_dir = codex_root / 'references' / 'source-packs'
@@ -345,7 +349,6 @@ def check_source_packs(codex_root: Path, reporter: Reporter) -> None:
         reporter.fail_check('source pack shape', 'missing expected sections: ' + ', '.join(sorted(malformed)))
     else:
         reporter.pass_check('source pack shape', 'all source packs include checks and PASS-100 focus')
-
 def check_context_index(codex_root: Path, reporter: Reporter) -> None:
     index_path = codex_root / 'references' / 'context-index.json'
     schema_path = codex_root / 'references' / 'context-index.schema.json'
@@ -361,7 +364,6 @@ def check_context_index(codex_root: Path, reporter: Reporter) -> None:
     errors = context_index_errors(codex_root, existing)
     detail = '; '.join(errors[:8]) if errors else f'{len(existing.get("files", []))} indexed files are current'
     (reporter.fail_check if errors else reporter.pass_check)('context index', detail)
-
 def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter) -> None:
     if not source.is_dir() or not target.is_dir():
         reporter.fail_check(label, 'source or target directory is missing')
@@ -382,7 +384,6 @@ def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter) 
         reporter.fail_check(label, '; '.join(details))
     else:
         reporter.pass_check(label, f'{len(source_files)} files match')
-
 def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
     codex_root = repo_root / PACKAGE_DIRS['codex_skill']
     codex_plugin_root = repo_root / PACKAGE_DIRS['codex_plugin_skill']
@@ -410,7 +411,6 @@ def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
             continue
         check_tree_sync(source, claude_ai_root / relative, f'Claude AI {relative} sync', reporter)
         check_tree_sync(source, command_root / relative, f'Claude command {relative} sync', reporter)
-
 def validate(repo_root: Path, allow_runs: bool) -> dict:
     reporter = Reporter()
     repo_root = repo_root.resolve()
@@ -421,18 +421,16 @@ def validate(repo_root: Path, allow_runs: bool) -> dict:
     check_entrypoint_content(repo_root, reporter)
     check_claude_plugin_marketplace(repo_root, reporter)
     check_codex_plugin_marketplace(repo_root, reporter)
+    check_public_docs(repo_root, reporter)
+    check_path_budget(repo_root, reporter)
     check_generated_artifacts(repo_root, allow_runs, reporter)
     check_source_packs(repo_root / PACKAGE_DIRS['codex_skill'], reporter)
     check_context_index(repo_root / PACKAGE_DIRS['codex_skill'], reporter)
     check_export_sync(repo_root, reporter)
     return {'valid': not reporter.errors, 'repo_root': str(repo_root), 'checks': reporter.checks, 'errors': reporter.errors, 'warnings': reporter.warnings}
-
-def default_repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
 def main() -> None:
     parser = argparse.ArgumentParser(description='Validate the package workspace shape.')
-    parser.add_argument('--repo-root', type=Path, default=default_repo_root())
+    parser.add_argument('--repo-root', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--allow-runs', action='store_true', help='Do not fail when runs/ directories exist.')
     parser.add_argument('--json', action='store_true', help='Print full JSON instead of a short summary.')
     args = parser.parse_args()

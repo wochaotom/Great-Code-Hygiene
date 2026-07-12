@@ -93,6 +93,7 @@ The Codex plugin marketplace currently installs the full trainer package.
 
 ```bash
 codex plugin marketplace add wochaotom/Great-Code-Hygiene
+codex plugin add code-hygiene-compounder@great-code-hygiene
 ```
 
 On Windows, if Git reports `Filename too long` while Codex clones the
@@ -101,6 +102,7 @@ marketplace, enable long paths for Git and rerun the command:
 ```bash
 git config --global core.longpaths true
 codex plugin marketplace add wochaotom/Great-Code-Hygiene
+codex plugin add code-hygiene-compounder@great-code-hygiene
 ```
 
 If you manage Codex by config, the plugin id is:
