@@ -8,7 +8,8 @@
 
 - For web apps and APIs, verify security controls against measurable requirements rather than broad intent.
 - Check encoding/sanitization, injection prevention, authentication, session management, access control, validation, and secure configuration.
-- Include ASVS versioned requirement identifiers in high-rigor security reports when possible.
+- Use the current stable ASVS 5.0.0 requirement set and include identifiers in
+  the form `v5.0.0-x.y.z` in high-rigor security reports when possible.
 - Prefer verification evidence: tests, configuration checks, code inspection, or tool output.
 - Use ASVS when confidence in web application security controls matters, especially for auth, data, and trust-boundary changes.
 

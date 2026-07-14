@@ -89,7 +89,7 @@ Phase R locks the authoritative source corpus before heavy training. The skill c
 - RFC 6265 HTTP State Management Mechanism: https://www.rfc-editor.org/rfc/rfc6265
 - Semantic Versioning: https://semver.org/
 - OpenAI function calling and structured outputs: https://developers.openai.com/api/docs/guides/function-calling
-- Anthropic tool use overview: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview
+- Anthropic tool use overview: https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
 - Anthropic tool definition docs: https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
 - Anthropic strict tool use docs: https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use
 - Gemini function calling: https://ai.google.dev/gemini-api/docs/function-calling

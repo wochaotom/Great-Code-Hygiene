@@ -5,15 +5,26 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: hygiene-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package-and-fixtures:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.11"
+
+      - name: Run unit tests
+        run: python -B -m unittest discover -s tests -v
 
       - name: Validate package shape
         run: python code-hygiene-compounder/scripts/validate_package.py --repo-root .
@@ -74,3 +85,28 @@ jobs:
 
       - name: Analyze PASS-100 run
         run: python code-hygiene-compounder/scripts/analyze_runs.py --results ci-pass100-result.json --suite code-hygiene-compounder/references/eval-prompts.md --source-weights code-hygiene-compounder/references/source-weights.json
+
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Run unit tests
+        run: python -B -m unittest discover -s tests -v
+
+      - name: Validate package shape
+        run: python code-hygiene-compounder/scripts/validate_package.py --repo-root .
+
+      - name: Check context index
+        run: python code-hygiene-compounder/scripts/source_audit_plan.py --skill-root code-hygiene-compounder --context-index --out code-hygiene-compounder/references/context-index.json --check
+
+      - name: Validate fixture metadata
+        run: python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures validate --suite code-hygiene-compounder/references/eval-prompts.md
+
+      - name: Confirm fixture baselines
+        run: python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures baseline

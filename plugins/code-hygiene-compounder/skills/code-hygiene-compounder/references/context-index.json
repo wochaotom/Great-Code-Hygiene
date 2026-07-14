@@ -1953,7 +1953,7 @@
         "audit",
         "source"
       ],
-      "lines": 17,
+      "lines": 18,
       "path": "references/source-packs/owasp-asvs.md",
       "read_when": [
         "activating source packs by domain",
@@ -1992,7 +1992,7 @@
           "heading": "Distilled Checks",
           "lines": [
             7,
-            14
+            15
           ]
         },
         {
@@ -2002,13 +2002,13 @@
           ],
           "heading": "PASS-100 Focus",
           "lines": [
-            15,
-            17
+            16,
+            18
           ]
         }
       ],
-      "sha256": "23d92341987e3295fd20efa9776243d387efb3da78a7355769c3c90b3f06c856",
-      "words": 101
+      "sha256": "bc1a88ba990196f91248dcabc2fad158e85adefbcb591dd2ef1bb57ea869d1c0",
+      "words": 111
     },
     {
       "domains": [
@@ -2660,7 +2660,7 @@
           ]
         }
       ],
-      "sha256": "7070897867c672858c9dcfb042dfa7c04c924af83c01b4694994d90903518f9c",
+      "sha256": "9f2dccae0d661ef35cee150148f7a1de452e6ff4b9eb50872d4fe97840c504ec",
       "words": 1270
     },
     {

@@ -9,6 +9,7 @@ Gemini into evidence-first code hygiene agents.**
 ![Antigravity Skill](https://img.shields.io/badge/Antigravity-Skill-lightgrey)
 ![npx skills](https://img.shields.io/badge/npx-skills-orange)
 ![PASS-100](https://img.shields.io/badge/PASS--100-rubric-purple)
+![Version](https://img.shields.io/badge/version-0.2.0-0f766e)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 *"Set the task -> the agent reads, reproduces, patches, verifies, and
@@ -62,6 +63,9 @@ or run promotion loops.
 ## Quick Start
 
 These commands install from the public GitHub repo with `npx skills`.
+Install [Node.js](https://nodejs.org/) first if `npx` is not already available.
+The clean and skeleton editions do not require Python; full trainer and
+maintainer commands require Python 3.11 or newer.
 
 ### Claude Code
 
@@ -192,6 +196,9 @@ See [docs/power-users.md](docs/power-users.md) for:
 - package layout and source-of-truth paths
 - maintainer checks and CI commands
 - PASS-100, fixture, and export workflow notes
+
+Versioned archives and checksums are available from
+[GitHub Releases](https://github.com/wochaotom/Great-Code-Hygiene/releases).
 
 ## FAQ
 

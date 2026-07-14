@@ -4,6 +4,13 @@ This page keeps maintainer and package-shape details out of the front page.
 Start with the root [README](../README.md) if you only want to install and use
 Great Code Hygiene.
 
+## Requirements
+
+- Normal `npx skills` installs: Node.js and npm with `npx`.
+- Clean or skeleton runtime: no Python dependency imposed by the skill.
+- Full trainer and maintainer checks: Python 3.11 or newer.
+- Manual fallbacks: Git plus the target coding agent.
+
 ## Install Matrix
 
 | Surface | Clean | Full trainer | Skeleton | Notes |
@@ -174,6 +181,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/hooks/install-local-ho
 CI is authoritative. Hooks run deterministic local checks only; they do not run
 model-execution promotion gates, sync local Codex installs, or contact external
 services.
+
+## Release Process
+
+Claude Code and Codex plugin manifests share one semantic version. Update both
+manifests, the Claude marketplace entry, and the validator constant together.
+The release contract tests reject drift.
+
+After the package, guardrail, fixture, and baseline checks pass on `main`, push
+the annotated Claude plugin tag:
+
+```bash
+claude plugin tag --dry-run code-hygiene-compounder
+claude plugin tag --push code-hygiene-compounder
+```
+
+The tag-triggered release workflow re-runs the gates, verifies that the tag
+matches both manifests, builds edition-specific archives, writes SHA-256
+checksums, and publishes the GitHub release. Do not upload hand-built archives.
 
 ## Full Trainer Notes
 

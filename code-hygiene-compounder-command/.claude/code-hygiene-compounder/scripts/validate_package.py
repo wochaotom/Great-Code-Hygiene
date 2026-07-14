@@ -28,7 +28,7 @@ EXPECTED_CONTEXT_FILES = {Path('code-hygiene-compounder/references/context-index
 MARKETPLACE_NAME = 'great-code-hygiene'
 PLUGIN_NAME = 'code-hygiene-compounder'
 CODEX_PLUGIN_SOURCE = './plugins/code-hygiene-compounder'
-CODEX_PLUGIN_VERSION = '0.1.0'
+PLUGIN_VERSION = '0.2.0'
 PLUGIN_SOURCE = './code-hygiene-compounder'
 PLUGIN_REPOSITORY = 'https://github.com/wochaotom/Great-Code-Hygiene'
 MAX_RELATIVE_PATH_LENGTH = 140
@@ -223,14 +223,14 @@ def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None
     expect(errors, not isinstance(plugins, list) or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
     if matching:
         expect(errors, matching[0].get('source') != PLUGIN_SOURCE, f'{PLUGIN_NAME} source must be {PLUGIN_SOURCE}')
-    expect(errors, any((isinstance(item, dict) and 'version' in item for item in matching)), 'marketplace plugin entry must omit version for commit-SHA updates')
+    expect(errors, any((isinstance(item, dict) and item.get('version') != PLUGIN_VERSION for item in matching)), f'marketplace plugin version must be {PLUGIN_VERSION}')
     for key, value in {'name': PLUGIN_NAME, 'repository': PLUGIN_REPOSITORY, 'skills': ['./'], 'agents': []}.items():
         expect(errors, manifest.get(key) != value, f'plugin manifest {key} must be {value}')
-    expect(errors, 'version' in manifest, 'plugin manifest must omit version for commit-SHA updates')
+    expect(errors, manifest.get('version') != PLUGIN_VERSION, f'plugin manifest version must be {PLUGIN_VERSION}')
     if errors:
         reporter.fail_check('Claude plugin marketplace', '; '.join(errors))
     else:
-        reporter.pass_check('Claude plugin marketplace', 'marketplace and plugin manifest use commit-SHA versioning')
+        reporter.pass_check('Claude plugin marketplace', f'marketplace and plugin manifest share SemVer {PLUGIN_VERSION}')
 def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
     marketplace_path = repo_root / '.agents' / 'plugins' / 'marketplace.json'
     manifest_path = repo_root / 'plugins' / PLUGIN_NAME / '.codex-plugin' / 'plugin.json'
@@ -251,7 +251,7 @@ def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
         for key, value in {'source': {'source': 'local', 'path': CODEX_PLUGIN_SOURCE}, 'policy': {'installation': 'AVAILABLE', 'authentication': 'ON_INSTALL'}, 'category': 'Coding'}.items():
             expect(errors, entry.get(key) != value, f'marketplace {key} is invalid')
     interface = manifest.get('interface')
-    for key, value in {'name': PLUGIN_NAME, 'version': CODEX_PLUGIN_VERSION, 'repository': PLUGIN_REPOSITORY, 'skills': './skills/'}.items():
+    for key, value in {'name': PLUGIN_NAME, 'version': PLUGIN_VERSION, 'repository': PLUGIN_REPOSITORY, 'skills': './skills/'}.items():
         expect(errors, manifest.get(key) != value, f'plugin manifest {key} is invalid')
     expect(errors, not isinstance(interface, dict) or interface.get('displayName') != 'Code Hygiene Compounder', 'plugin manifest interface.displayName is required')
     expect(errors, '[TODO:' in json.dumps({'marketplace': marketplace, 'manifest': manifest}, sort_keys=True), 'Codex marketplace files must not contain TODO placeholders')

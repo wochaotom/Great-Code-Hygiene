@@ -7,6 +7,7 @@
   "plugins": [
     {
       "name": "code-hygiene-compounder",
+      "version": "0.2.0",
       "source": "./code-hygiene-compounder",
       "description": "Code hygiene workflow, PASS-100 scoring, and source-grounded compounding for Claude Code.",
       "author": {
