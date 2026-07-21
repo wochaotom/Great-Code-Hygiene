@@ -39,6 +39,16 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(claude["version"], codex["version"])
         self.assertEqual(claude["version"], validate_package.PLUGIN_VERSION)
 
+    def test_readme_version_badge_matches_plugin_version(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        badge = re.search(
+            r"img\.shields\.io/badge/version-(\d+\.\d+\.\d+)-[^)]+", readme
+        )
+
+        self.assertIsNotNone(badge)
+        assert badge is not None
+        self.assertEqual(validate_package.PLUGIN_VERSION, badge.group(1))
+
     def test_claude_validator_rejects_missing_version(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)

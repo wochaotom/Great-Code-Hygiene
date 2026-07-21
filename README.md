@@ -1,71 +1,95 @@
 # Great Code Hygiene
 
-**Turn Claude Code, OpenAI Codex, Cursor, Antigravity, ChatGPT, Claude, and
-Gemini into evidence-first code hygiene agents.**
+**An evidence-first workflow for code review, debugging, cleanup,
+hardening, and verified agent work.**
 
-![Claude Code Skill](https://img.shields.io/badge/Claude_Code-Skill-blue?logo=anthropic&logoColor=white)
-![Codex Skill](https://img.shields.io/badge/Codex-Skill-green?logo=openai&logoColor=white)
-![Cursor Skill](https://img.shields.io/badge/Cursor-Skill-black)
-![Antigravity Skill](https://img.shields.io/badge/Antigravity-Skill-lightgrey)
-![npx skills](https://img.shields.io/badge/npx-skills-orange)
-![PASS-100](https://img.shields.io/badge/PASS--100-rubric-purple)
-![Version](https://img.shields.io/badge/version-0.2.0-0f766e)
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+[![Claude Code Skill](https://img.shields.io/badge/Claude_Code-Skill-blue?logo=anthropic&logoColor=white)](#claude-code)
+[![Codex Skill](https://img.shields.io/badge/Codex-Skill-green?logo=openai&logoColor=white)](#openai-codex)
+[![Cursor Skill](https://img.shields.io/badge/Cursor-Skill-black)](#cursor)
+[![Antigravity Skill](https://img.shields.io/badge/Antigravity-Skill-lightgrey)](#antigravity)
+[![npx skills](https://img.shields.io/badge/npx-skills-orange)](#quick-start)
+[![PASS-100](https://img.shields.io/badge/PASS--100-rubric-purple)](docs/power-users.md#evaluation-and-pass-100)
+[![Version](https://img.shields.io/badge/version-0.2.0-0f766e)](https://github.com/wochaotom/Great-Code-Hygiene/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](#license)
 
-*"Set the task -> the agent reads, reproduces, patches, verifies, and
-reports."*
+Great Code Hygiene gives coding agents a disciplined way to work inside real
+repositories. The agent reads before editing, reproduces bugs when possible,
+keeps the change narrow, verifies the result with real tools, and reports what
+the evidence does and does not prove.
 
-Great Code Hygiene is a portable workflow for code review, cleanup, debugging,
-hardening, packaging, and agent evaluation. It teaches coding agents to read
-first, build the smallest useful feedback loop, patch narrowly, verify with
-real commands, and report evidence instead of confidence.
+The project packages a common hygiene loop in three editions:
 
-[Quick Start](#quick-start) | [Which Edition](#which-edition) |
-[Use It](#use-it) | [Chatbots](#chatgpt-claude-and-gemini) |
-[Power Users](docs/power-users.md) | [License](#license)
+- `code-hygiene` for normal code work
+- `code-hygiene-compounder` for maintainers who evaluate and improve the skill
+- `code-hygiene-skeleton` for users building a custom workflow from scratch
+
+[Choose an edition](#choose-an-edition) | [Install](#quick-start) |
+[When to use it](#when-to-use-it) | [How it works](#how-great-code-hygiene-works) |
+[Full trainer](#how-the-full-trainer-compounds) | [Power users](docs/power-users.md)
 
 ---
 
-## What It Does
+## Why It Exists
 
-Great Code Hygiene gives your agent a repeatable loop:
+Coding agents can produce a plausible patch before they understand the code,
+change more than the task requires, or report success after an incomplete
+check. Great Code Hygiene replaces that behavior with one canonical
+[seven-stage workflow](#how-great-code-hygiene-works): activate, ground, build
+a feedback loop, constrain the change, harden the affected risk surface,
+verify, and report evidence.
 
-1. Read repo instructions, code, tests, manifests, and local patterns.
-2. For bugs or regressions, reproduce the symptom or state why no loop is
-   possible.
-3. Make the smallest behavior-correct change.
-4. Verify with the narrowest meaningful check first.
-5. Report commands, evidence, skipped checks, assumptions, and residual risk.
+Great Code Hygiene is an instruction and verification layer. It uses the file,
+shell, test, browser, and review tools supplied by the host agent. It does not
+replace your compiler, tests, linter, security scanner, reviewer, or repository
+permissions.
 
-It is useful for:
+## Choose an Edition
 
-- code review and PR risk checks
-- bug fixing and regression cleanup
-- refactors that should preserve behavior
-- package, config, docs, and release hygiene
-- maintainer-only training and PASS-100 evaluation
+Install `code-hygiene` unless you have a specific reason to train or redesign
+the workflow.
 
-## Which Edition
-
-Install `code-hygiene` first unless you are maintaining this project or building
-your own workflow.
-
-| Edition | Skill | Use it when... | Self-training |
+| Edition | What it includes | What it excludes | Use it when |
 | --- | --- | --- | --- |
-| Clean | `code-hygiene` | You want review, cleanup, bug-fix, hardening, and verification behavior. | No |
-| Full trainer | `code-hygiene-compounder` | You want PASS-100, source audits, exports, fixtures, and gated skill evolution. | Only when explicitly requested and gates pass |
-| Skeleton | `code-hygiene-skeleton` | You want a blank starting point with no inherited sources, fixtures, lessons, or rubric. | User-defined |
+| Clean | Complete function-only hygiene workflow for review, fixes, refactors, hardening, package checks, documentation, and evidence reports | PASS-100 training, source packs, fixture promotion, self-mutation | You want better day-to-day agent behavior |
+| Full trainer | Clean workflow plus PASS-100, weighted source packs, eval prompts, fixtures, analysis, guardrails, promotion, export, and package tools | An autonomous model runner or permission to promote without evidence | You maintain, evaluate, export, or deliberately evolve the skill |
+| Skeleton | Minimal starter workflow and bootstrap questions | Inherited sources, rubric, fixtures, lessons, and promotion policy | You want a blank starting point for a different risk model or code domain |
 
-The clean edition can still modify your project when you ask for a fix or
-refactor. "No self-training" means it will not mutate itself, add source packs,
-or run promotion loops.
+### Clean: `code-hygiene`
+
+The clean edition contains the complete daily workflow. It can review and edit
+your project when the task asks for changes, but it does not train itself,
+score itself, add sources, or run promotion loops. This is the best default for
+individual developers and teams that want consistent code work without the
+trainer package.
+
+### Full trainer: `code-hygiene-compounder`
+
+The full trainer starts with the same daily workflow and adds the machinery
+used to evaluate and improve that workflow. It carries the PASS-100 rubric,
+eval prompts, weighted source corpus, executable fixtures, generated test
+matrices, result validators, analysis scripts, anti-overtraining budgets,
+promotion tooling, and package exporters.
+
+Training never starts merely because the skill was installed. The user must
+ask for training, scoring, source-grounded honing, export, or skill evolution.
+A major promotion requires model-execution evidence or independent review in
+addition to deterministic script checks.
+
+### Skeleton: `code-hygiene-skeleton`
+
+The skeleton is a blank starting point. It preserves a small ground, constrain,
+verify, and report loop but inherits no Great Code Hygiene source corpus,
+PASS-100 scoring, fixtures, or promoted lessons. Use it when the intended
+workflow needs different languages, risks, tools, or evidence standards.
 
 ## Quick Start
 
-These commands install from the public GitHub repo with `npx skills`.
-Install [Node.js](https://nodejs.org/) first if `npx` is not already available.
-The clean and skeleton editions do not require Python; full trainer and
-maintainer commands require Python 3.11 or newer.
+These commands install from the public GitHub repository with `npx skills`.
+Install [Node.js](https://nodejs.org/) first if `npx` is unavailable.
+
+- Clean and skeleton use: no Python dependency imposed by the skill.
+- Full trainer scripts and maintainer checks: Python 3.11 or newer.
+- Plugin marketplaces install the full trainer only.
 
 ### Claude Code
 
@@ -85,7 +109,7 @@ Review this repo with Code Hygiene and report verification evidence.
 npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene --agent codex --global --yes
 ```
 
-Invoke it by name when useful:
+Invoke it explicitly when you want to guarantee activation:
 
 ```text
 $code-hygiene review this repo and report verification evidence.
@@ -103,9 +127,12 @@ npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene --agent 
 npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene --agent antigravity --global --yes
 ```
 
-### Install Another Edition
+The documented `npx skills` targets are `claude-code`, `codex`, `cursor`, and
+`antigravity`.
 
-Use the same command shape and change only `--skill`:
+### Install the Full Trainer or Skeleton
+
+Use the same command shape and change `--skill`:
 
 ```bash
 # Full trainer
@@ -115,15 +142,12 @@ npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene-compound
 npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene-skeleton --agent <agent> --global --yes
 ```
 
-Supported `<agent>` values in this repo are `claude-code`, `codex`, `cursor`,
-and `antigravity`.
+### Plugin Marketplaces
 
-### Plugin Marketplace
+The Claude Code and Codex marketplace packages install
+`code-hygiene-compounder`, including its training and package tools.
 
-The plugin marketplace packages install the full trainer,
-`code-hygiene-compounder`.
-
-Claude Code:
+Inside Claude Code:
 
 ```text
 /plugin marketplace add wochaotom/Great-Code-Hygiene
@@ -131,103 +155,375 @@ Claude Code:
 /reload-plugins
 ```
 
-Codex:
+With the Codex CLI:
 
 ```bash
 codex plugin marketplace add wochaotom/Great-Code-Hygiene
 codex plugin add code-hygiene-compounder@great-code-hygiene
 ```
 
-Use the `npx skills` commands above when you want the clean function-only
-edition or the skeleton template.
+Use the `npx skills` path when you want the clean edition or skeleton. Update,
+uninstall, manual-copy, and Windows long-path instructions live in the
+[Power User Guide](docs/power-users.md).
 
-## Use It
+### ChatGPT, Claude, and Gemini
 
-Ask for the workflow directly:
+Web chatbots do not install coding-agent skills. Use the matching profile as
+custom instructions and attach the portable prompt when the platform supports
+knowledge files:
+
+- [ChatGPT GPT instructions](chatbot-profiles/chatgpt-gpt-instructions.md)
+- [Claude project instructions](chatbot-profiles/claude-project-instructions.md)
+- [Gemini Gem instructions](chatbot-profiles/gemini-gem-instructions.md)
+- [Portable compounder prompt](portable-prompts/code-hygiene-compounder-chat.md)
+
+A chatbot still needs uploaded files, pasted context, or an authorized
+connector to inspect a repository. It cannot prove that a command passed unless
+it can run the command or you provide the output.
+
+## When to Use It
+
+Use Great Code Hygiene for work where the quality of the reasoning, change, and
+verification matters:
+
+- Code review, pull request review, branch review, and repository risk audits.
+- Bug fixes, regressions, flaky behavior, and production failure diagnosis.
+- Refactors and cleanup that must preserve public or internal behavior.
+- Security and data-safety hardening, with dedicated security tools added when
+  the risk warrants them.
+- Test repair, test design, CLI harnesses, browser checks, and replay fixtures.
+- Package, dependency, configuration, migration, CI, release, and install work.
+- Documentation cleanup when docs describe executable behavior or public
+  contracts.
+- Evidence-based verification of work performed by another agent or developer.
+- Deliberate PASS-100 evaluation and source-grounded skill training with the
+  full trainer.
+
+Explicitly name the skill for high-risk tasks or when the host may not activate
+skills automatically.
+
+## When Not to Use It
+
+Great Code Hygiene should not become ceremony around work that a narrower tool
+can prove directly.
+
+- Use the repository formatter for formatting-only changes.
+- Use the compiler or type checker when the question is only whether code
+  compiles or type-checks.
+- Use a dedicated security review or threat model for broad security audits;
+  Code Hygiene can coordinate checks but does not replace security expertise.
+- Do not use the full trainer for routine code changes. Install the clean
+  edition instead.
+- Do not use PASS-100 as a public model leaderboard or compare different
+  evidence classes as the same measurement.
+- Do not treat generated fixtures, matrix oracles, or a clean package check as
+  proof that an agent solved a real task.
+- Do not ask the skill to claim test success when the host has no execution
+  access and no command output was supplied.
+- Do not train the skill from one surprising example. Record it as candidate
+  evidence until an independent recurrence or stronger source supports it.
+
+## How Great Code Hygiene Works
+
+The host agent discovers the skill from its name and description or loads it
+because you invoke it directly. The skill then applies the same seven-stage
+workflow to reviews, fixes, refactors, hardening, package checks, and docs.
+
+```mermaid
+flowchart LR
+    A[Task] --> B[Activate]
+    B --> C[Ground]
+    C --> D[Deterministic feedback loop]
+    D --> E[Scoped Change]
+    E --> F[Harden]
+    F --> G[Verify]
+    G --> H[Evidence report]
+```
+
+### 1. Activation
+
+The skill activates in one of two ways:
+
+- The host matches the task to the skill description.
+- You invoke `code-hygiene` or `code-hygiene-compounder` by name.
+
+Automatic discovery depends on the host. Explicit invocation is the reliable
+choice for consequential work. Activation loads procedure, not authority: the
+agent still has only the files, commands, network access, and permissions
+granted by the host.
+
+### 2. Grounding
+
+Before judging or editing, the agent reads the evidence that defines the local
+contract:
+
+- repository instructions and current worktree state
+- relevant implementation, callers, tests, types, manifests, and config
+- local conventions, helper APIs, generated boundaries, and public contracts
+- user-owned changes that must not be reverted
+
+The agent prefers existing frameworks and repository patterns over a new
+abstraction. If the task is bounded to a file, fixture, package, or scratch
+directory, status and discovery stay within that scope.
+
+### 3. Deterministic Feedback Loop
+
+For a bug, regression, or flaky behavior, the agent first builds the smallest
+repeatable loop that observes the symptom. Suitable loops include:
+
+- a focused unit or integration test
+- a CLI command or reduced script
+- browser automation for a user-visible flow
+- a replayed fixture or captured trace
+- a deterministic inspection query when execution is impossible
+
+The first loop should be narrow enough to explain the failure. Broader checks
+come later. If no deterministic loop is possible, the evidence report names
+what was attempted and which artifact, access, service, or environment is
+missing.
+
+### 4. Scoped Change
+
+The agent makes the smallest behavior-correct change that satisfies the task.
+It preserves unrelated user edits, public interfaces, serialization formats,
+configuration precedence, migration behavior, and caller-owned mutable data
+unless the request changes those contracts.
+
+The workflow rejects opportunistic rewrites, broad formatting sweeps,
+dependency churn, generated noise, and abstractions that do not remove real
+complexity.
+
+### 5. Risk-Driven Hardening
+
+The agent checks only the hardening dimensions activated by the changed
+surface. Examples include:
+
+- input validation, authorization, secrets, injection, unsafe deserialization,
+  path handling, privacy, and dependency risk
+- errors, logs, retries, timeouts, cleanup, concurrency, and observability
+- config defaults and precedence, migration rollback, compatibility, and
+  package boundaries
+- tests for behavior changes, regression-prone paths, and public contracts
+
+This is risk-driven, not a demand to run every possible audit on every diff.
+
+### 6. Verification
+
+Verification proceeds from the smallest meaningful check to broader guards:
+
+1. Re-run the feedback loop that observed the bug or contract.
+2. Run adjacent tests, validation, type checks, builds, or package checks that
+   cover the changed boundary.
+3. Inspect the final diff and user-facing artifact.
+4. Report failed or unavailable checks without hiding them.
+
+Fresh command output supports a passing claim. Prior runs, generated summaries,
+agent confidence, and an uninspected artifact do not.
+
+### 7. Evidence Report
+
+Implementation work ends with a compact evidence record:
+
+| Field | What it records |
+| --- | --- |
+| Feedback Loop | Reproducer used before the fix, or the exact blocker |
+| Verification | Commands and checks run with actual results |
+| Evidence Table | Expected result, actual result, status, and artifact |
+| Correctness | Behavior preserved or intentionally changed |
+| Security/Data | Relevant validation, authorization, secrets, path, and privacy checks |
+| Minimal Diff | Why the change stayed within scope |
+| Unrun Checks | Checks skipped and the reason |
+| Residual Risk | Remaining uncertainty |
+
+Reviews use the same evidence model after listing findings by severity. The
+full template is in
+[`references/evidence-report.md`](code-hygiene-compounder/references/evidence-report.md).
+
+## Task Modes
+
+The core workflow stays stable while the emphasis changes by task.
+
+| Mode | First concern | Minimum convincing evidence |
+| --- | --- | --- |
+| Review | Behavioral bugs, regressions, risk, and missing tests | File and line evidence plus the checks actually run |
+| Debug or fix | Reproducing the reported symptom | Original loop fails before the fix and passes after it when feasible |
+| Refactor or cleanup | Behavior preservation | Characterization or existing tests plus a scoped diff |
+| Hardening | Exploitable or unsafe path and safe control | Regression check for the unsafe path plus a valid safe case |
+| Package or config | Install, load, precedence, and consumer compatibility | Manifest/config validation plus an adjacent consumer command |
+| Documentation | Accuracy against executable behavior | Link/content checks and inspection of referenced commands or files |
+
+## Evidence Model
+
+The full trainer labels evidence so a convenient check cannot masquerade as a
+stronger result.
+
+| Evidence class | What happened | What it can support |
+| --- | --- | --- |
+| `script-only` | Scripts generated batches, validated JSON, calculated scores, or exercised harness plumbing | Harness and artifact correctness, not model quality |
+| `audit-backed` | A real session was scored from observed work, artifacts, and reviewer judgment | Candidate lessons and real-use findings, with reviewer subjectivity stated |
+| `model-execution` | A model or agent received the task prompt and its actual output was collected and scored | Stronger evidence about behavior for that model, skill version, and run setup |
+
+Generated matrix variants and individual fixture misses are candidate evidence.
+They can reveal a failure family but cannot establish a major promotion by
+themselves. Different run types must remain separate in analysis.
+
+## How the Full Trainer Compounds
+
+The compounder turns observed failures into candidate improvements without
+letting one task rewrite the skill.
+
+```mermaid
+flowchart TD
+    A[Observed failure or source-backed gap] --> B[Select batch and evidence class]
+    B --> C[Activate relevant source packs]
+    C --> D[Run tasks and collect artifacts]
+    D --> E[Validate and score with PASS-100]
+    E --> F[Run matching fixtures and guardrails]
+    F --> G[Draft one candidate lesson or skill change]
+    G --> H[Re-run the same evidence]
+    H --> I{All promotion gates pass?}
+    I -- No --> J[Reject or gather more evidence]
+    I -- Yes --> K[Promote and sync packages]
+```
+
+The loop has four safeguards:
+
+- Source routing activates only the admitted packs relevant to the task.
+- PASS-100 labels `script-only`, `audit-backed`, and `model-execution` evidence
+  separately instead of treating every green artifact as model proof.
+- Sparse fixtures, generated matrices, and independent real tasks cover
+  different failure modes without becoming one interchangeable score.
+- Promotion requires baseline, category, fixture, package, and overtraining
+  gates; phase advancement remains a human decision.
+
+The source-admission policy, complete PASS-100 rubric, promotion controls, and
+responsibility map for all 12 deterministic scripts are in
+[Full Trainer Internals](docs/power-users.md#full-trainer-internals).
+
+## Packaging and Hosts
+
+The canonical workflows are packaged for each host rather than maintained as
+independent implementations. `npx skills` installs one selected edition;
+Claude Code and Codex marketplaces install the full trainer; chat products use
+profiles and a portable prompt. The host still controls discovery, tools,
+permissions, and execution semantics.
+
+Package parity checks prove that tracked copies match their canonical source.
+They do not prove identical behavior across hosts. See the
+[Install Matrix](docs/power-users.md#install-matrix),
+[Source of Truth](docs/power-users.md#source-of-truth), and
+[Package Targets](docs/power-users.md#package-targets) for the complete map.
+
+## Prompt Examples
+
+### Review
 
 ```text
 Review this repo with Code Hygiene.
-Focus: correctness, regressions, tests, security/data safety, config, packaging
-Output: findings first, then verification evidence and residual risk
+Focus on correctness, regressions, tests, security/data safety, config, and packaging.
+Report findings first, then verification evidence and residual risk.
 ```
+
+### Debug or Fix
 
 ```text
 Use Code Hygiene to fix this failing check:
 Check: <command>
 Guard: <optional broader command>
+Build the smallest deterministic feedback loop before changing code.
 ```
 
+### Scoped Cleanup
+
 ```text
-Scrub <folder/file> with Code Hygiene.
-Avoid unrelated rewrites. Report exact checks run.
+Scrub <folder-or-file> with Code Hygiene.
+Preserve behavior and unrelated user edits.
+Report the exact checks run.
 ```
 
-For trainer work:
+### Verify Existing Work
 
 ```text
-Run PASS-100 smoke for this candidate lesson.
-Do not promote unless gates pass.
+Verify this implementation with Code Hygiene.
+Inspect the final diff and artifact instead of trusting the prior report.
+List unrun checks and residual risk.
+```
+
+### Train the Full Edition
+
+```text
+Use Code Hygiene Compounder to evaluate this candidate lesson.
+Run the matching PASS-100 batch and fixtures.
 Treat new evidence as candidate evidence.
+Do not promote unless every required gate passes.
 ```
 
-## ChatGPT, Claude, and Gemini
+## Trust Boundaries and Limitations
 
-Web chatbots do not install native coding-agent skills. Use the matching profile
-as custom instructions or project/Gem instructions, then attach the portable
-prompt as knowledge when the platform supports files:
-
-```text
-chatbot-profiles/chatgpt-gpt-instructions.md
-chatbot-profiles/claude-project-instructions.md
-chatbot-profiles/gemini-gem-instructions.md
-portable-prompts/code-hygiene-compounder-chat.md
-```
-
-Chatbots still need uploaded files, connectors, or pasted context to inspect a
-repo. They cannot prove tests passed unless they have tool access or you provide
-the command output.
+- A skill is instruction, not a sandbox. Host permissions and tool policy remain
+  the enforcement boundary.
+- The workflow can reduce unsupported claims but cannot make an unavailable
+  test, service, credential, device, or production environment observable.
+- A passing deterministic check proves only the behavior that check covers.
+- PASS-100 contains judgment-dependent categories. Record deductions,
+  artifacts, model identity, skill version, and unrun checks with each run.
+- Plugin and skill installation executes the behavior supported by the target
+  client. Review repository source, manifests, hooks, scripts, and updates
+  before granting broad authority.
+- Chat-only profiles provide procedure but no repository access or execution
+  capability by themselves.
 
 ## For Power Users
 
-See [docs/power-users.md](docs/power-users.md) for:
+The [Power User Guide](docs/power-users.md) contains the operational reference:
 
-- update commands and manual fallbacks
-- skill install vs plugin install details
-- package layout and source-of-truth paths
-- maintainer checks and CI commands
-- PASS-100, fixture, and export workflow notes
+- update and removal commands
+- manual installation fallbacks
+- skill install versus plugin install behavior
+- package source-of-truth and generated-copy map
+- maintainer validation and fixture commands
+- Codex plugin configuration and Windows long-path handling
+- release tagging, archive generation, and checksums
 
-Versioned archives and checksums are available from
+Versioned archives and SHA-256 checksums are published in
 [GitHub Releases](https://github.com/wochaotom/Great-Code-Hygiene/releases).
 
 ## FAQ
 
 ### Does it run automatically?
 
-Installed skill systems may invoke it when the task clearly matches review,
-cleanup, debugging, hardening, packaging, testing, or evaluation. You can also
-invoke `code-hygiene` or `code-hygiene-compounder` by name.
+It can. Skill-aware clients may activate it when a task matches the skill
+description. Explicitly name `code-hygiene` or `code-hygiene-compounder` when
+activation matters.
 
-### Does it replace tests?
+### Does it replace tests or code review?
 
-No. It makes the agent find or build the smallest meaningful feedback loop and
-state what was actually verified.
+No. It makes the agent locate, build, run, and report the relevant evidence. A
+human reviewer and the repository toolchain remain authoritative.
 
-### Which version should I install first?
+### Can the clean edition modify my code?
 
-Install `code-hygiene`. Install `code-hygiene-compounder` only when you want to
-maintain, train, score, export, or evolve the skill itself.
+Yes. Function-only means that it does not train or mutate itself. It can edit
+the user's project when the requested task calls for a fix, refactor, cleanup,
+hardening change, test, or documentation update.
 
-### Can it modify my code?
+### Does the full trainer improve itself automatically?
 
-Yes, when you ask it to fix, refactor, clean up, or harden code. The clean
-edition does not mutate or train itself.
+No. Training must be requested. Candidate changes remain unpromoted until the
+required evidence and guardrails pass, and phase advancement stays under human
+control.
 
 ### Is PASS-100 a benchmark?
 
-No. PASS-100 is this project's scoring rubric for hygiene behavior. Treat
-`script-only`, `audit-backed`, and `model-execution` evidence as different
-evidence classes.
+PASS-100 is this project's hygiene rubric. It structures evaluation but does
+not create objective model-performance proof. Keep `script-only`,
+`audit-backed`, and `model-execution` results separate.
+
+### Why are there three editions in one repository?
+
+They share one workflow but serve different trust boundaries. Maintaining them
+on `main` lets package validation check the clean and trainer copies together.
+Users install only the edition they need.
 
 ## License
 

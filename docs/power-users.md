@@ -43,6 +43,36 @@ Skeleton:
 npx skills@latest update code-hygiene-skeleton --global --yes
 ```
 
+## Removal Commands
+
+Remove a skill installed through `npx skills` by its edition name:
+
+```bash
+npx skills@latest remove code-hygiene --global --yes
+npx skills@latest remove code-hygiene-compounder --global --yes
+npx skills@latest remove code-hygiene-skeleton --global --yes
+```
+
+Remove the full trainer plugin from Codex or Claude Code:
+
+```bash
+codex plugin remove code-hygiene-compounder@great-code-hygiene
+claude plugin uninstall code-hygiene-compounder@great-code-hygiene
+```
+
+After removing the plugin, remove the marketplace registration only when you no
+longer want any plugins from this repository:
+
+```bash
+codex plugin marketplace remove great-code-hygiene
+claude plugin marketplace remove great-code-hygiene
+```
+
+Both clients report the installed plugin id as
+`code-hygiene-compounder@great-code-hygiene` and the configured marketplace
+name as `great-code-hygiene`. The removal commands use those persisted
+identifiers, not the capitalization of the GitHub repository slug.
+
 ## Manual Fallbacks
 
 Use these only when `npx` and plugin marketplaces are unavailable.
@@ -119,7 +149,7 @@ If you manage Codex by config, the plugin id is:
 enabled = true
 ```
 
-## Source Of Truth
+## Source of Truth
 
 | Surface | Source of truth | Synced/generated copies |
 | --- | --- | --- |
@@ -182,6 +212,29 @@ CI is authoritative. Hooks run deterministic local checks only; they do not run
 model-execution promotion gates, sync local Codex installs, or contact external
 services.
 
+### CLI Documentation Checks
+
+The repository contract tests preserve commands after they have been reviewed;
+they do not install third-party CLIs in CI. Before a release that changes setup
+documentation, verify the public command surfaces directly:
+
+```bash
+npx skills@latest --help
+npx skills@latest remove --help
+codex plugin add --help
+codex plugin remove --help
+codex plugin marketplace remove --help
+claude plugin install --help
+claude plugin uninstall --help
+claude plugin marketplace remove --help
+```
+
+After a marketplace install, `codex plugin marketplace list --json`,
+`codex plugin list --json`, `claude plugin marketplace list --json`, and
+`claude plugin list --json` expose the exact identifiers used by removal
+commands. Run install and removal smoke tests under an isolated config or test
+home so documentation checks do not mutate a developer's active setup.
+
 ## Release Process
 
 Claude Code and Codex plugin manifests share one semantic version. Update both
@@ -200,7 +253,7 @@ The tag-triggered release workflow re-runs the gates, verifies that the tag
 matches both manifests, builds edition-specific archives, writes SHA-256
 checksums, and publishes the GitHub release. Do not upload hand-built archives.
 
-## Full Trainer Notes
+## Full Trainer Internals
 
 Use the full trainer only when you are intentionally maintaining or evaluating
 the skill system.
@@ -211,8 +264,84 @@ Do not promote unless gates pass.
 Treat new evidence as candidate evidence.
 ```
 
-PASS-100 is a rubric and harness, not model-performance proof by itself. Only
-`model-execution` evidence proves actual model behavior on prompts.
+### Source Routing
+
+The trainer keeps source material outside the active skill body. A registry and
+weight file define the admitted corpus. Task domains such as security, API,
+frontend, config, release, observability, package, Python, or training activate
+only the relevant distilled source packs. A new source remains quarantined
+until it adds measurable coverage and has been classified, distilled, and
+weighted.
+
+### Evaluation and PASS-100
+
+PASS-100 is a 100-point code-hygiene rubric. It scores the quality of one run,
+not the number of prompts and not a universal model ranking.
+
+| Category | Points |
+| --- | ---: |
+| Correctness and behavior preservation | 15 |
+| Test quality and verification | 15 |
+| Simplicity and maintainability | 15 |
+| Security and data safety | 10 |
+| Local integration | 10 |
+| Minimal reviewable diff | 10 |
+| Error handling and observability | 10 |
+| Documentation and comments | 5 |
+| Dependency and config hygiene | 5 |
+| Agent process hygiene | 5 |
+
+Critical failures cap the score. Promotion compares the candidate with an
+accepted baseline and protects correctness, tests, security, and minimal-diff
+behavior from regression. The complete rubric and caps are in
+[`PASS-100.md`](../code-hygiene-compounder/references/PASS-100.md).
+
+### Fixtures, Matrices, and Real Tasks
+
+The trainer uses three complementary surfaces:
+
+- Executable fixtures reproduce small objective failure modes and protect
+  important files from accidental edits.
+- Generated matrices vary code shapes and hidden contracts to test target and
+  harness quality. Oracle-green matrix output is not model-execution proof.
+- Independent real tasks test whether a lesson transfers beyond a synthetic
+  example.
+
+Fixtures stay sparse. A new fixture or lesson needs a repeated measurable
+failure, independent evidence, or an admitted source-backed rule.
+
+### Promotion and Overtraining Control
+
+A candidate should be promoted only after the relevant result validation,
+baseline comparison, fixture checks, package parity, and guardrail checks pass.
+The candidate must address an observed failure or source-backed principle,
+remain concise, and avoid weakening critical categories.
+
+Phase advancement remains a human decision. The trainer can recommend more
+coverage but cannot declare that a broader eval phase is warranted on its own.
+
+### What the Scripts Automate
+
+| Script | Responsibility |
+| --- | --- |
+| `source_audit_plan.py` | Activate source packs and maintain the context index |
+| `pass100_runner.py` | List prompts, select batches, and score supplied result records |
+| `validate_results.py` | Reject malformed or inconsistent result artifacts |
+| `analyze_runs.py` | Summarize scores, intervals, pass rates, and baseline deltas |
+| `fixture_runner.py` | Validate, prepare, run, and baseline executable fixtures |
+| `matrix_runner.py` | Generate deterministic target matrices and review-contract cases |
+| `matrix_families.py` | Define the deterministic matrix families consumed by the runner |
+| `guardrail_check.py` | Enforce instruction, lesson, fixture, script, source, and noise budgets |
+| `validate_honing_report.py` | Validate source-grounded audit reports |
+| `promote_candidate.py` | Consume promotion artifacts and optionally apply an approved candidate |
+| `export_claude_package.py` | Build Claude skill, Claude.ai, legacy command, and portable prompt formats |
+| `validate_package.py` | Check manifests, package shape, synced copies, docs, and generated noise |
+
+These scripts are deterministic gatekeepers. They do not call a model, judge
+source code, extract lessons, or prove model performance. The surrounding agent
+or operator still runs tasks, captures outputs, scores judgment-dependent
+categories, and executes the full promotion protocol. Only `model-execution`
+evidence evaluates actual model behavior on prompts.
 
 ## Chatbot Profiles
 
