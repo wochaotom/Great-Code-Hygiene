@@ -120,14 +120,22 @@ def digest(path: Path) -> str:
 def context_values(relative: str, rules, default) -> list[str]:
     values: list[str] = []
     for needles, additions in rules:
-        if any(needle in relative for needle in needles):
+        if isinstance(needles, str):
+            needles = (needles,)
+        if any(context_match(relative, needle) for needle in needles):
             values.extend(additions)
     return sorted(set(values or list(default)))
 
 
+def context_match(relative: str, needle: str) -> bool:
+    if needle.endswith("/"):
+        return relative.startswith("references/" + needle) or relative.startswith(needle)
+    return relative.rsplit("/", 1)[-1] == needle
+
+
 def context_role(relative: str) -> str:
     for needle, role in ROLE_RULES:
-        if needle in relative:
+        if context_match(relative, needle):
             return role
     return "reference material"
 
@@ -168,10 +176,9 @@ def build_context_index(skill_root: Path) -> dict:
                 "sha256": digest(path),
                 "lines": len(text.splitlines()),
                 "words": len(WORD_RE.findall(text)),
-                "sections": context_sections(text, domains),
             }
         )
-    return {"version": "1", "generated_at": CONTEXT_GENERATED_AT, "root": skill_root.name, "files": files}
+    return {"version": "2", "generated_at": CONTEXT_GENERATED_AT, "root": skill_root.name, "files": files}
 
 
 def context_index_errors(skill_root: Path, payload: dict) -> list[str]:
@@ -184,7 +191,45 @@ def context_index_errors(skill_root: Path, payload: dict) -> list[str]:
     missing = sorted(required - actual_paths)
     if missing:
         errors.append("missing required indexed paths: " + ", ".join(missing))
+    size = len((json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+    if size > 24 * 1024:
+        errors.append(f"context index is {size} bytes; limit 24576")
     return errors
+
+
+def query_context(skill_root: Path, query: str, domains: list[str], path: str | None) -> dict:
+    index = build_context_index(skill_root)
+    files = index["files"]
+    if query == "daily":
+        wanted = {"SKILL.md", "references/HYGIENE_QUICK.md", "references/evidence-report.md"}
+        selected = [item for item in files if item["path"] in wanted]
+        if len(selected) != len(wanted):
+            raise SystemExit("daily context references are missing")
+    elif query == "source-audit":
+        domain_errors = validate_domains(domains)
+        if domain_errors:
+            raise SystemExit("; ".join(domain_errors))
+        weights = load_source_weights(skill_root / "references" / "source-weights.json")
+        active = active_activation_values(domains)
+        wanted = {f"references/source-packs/{item['id']}.md" for item in weights if item["activation"] in active}
+        selected = [item for item in files if item["path"] in wanted]
+        if {item["path"] for item in selected} != wanted:
+            raise SystemExit("one or more activated source packs are missing from context index")
+    elif query == "path":
+        if not path:
+            raise SystemExit("--path is required for --query path")
+        selected = [item for item in files if item["path"] == path]
+        if not selected:
+            raise SystemExit(f"unindexed context path: {path}")
+        for item in selected:
+            text = (skill_root / item["path"]).read_text(encoding="utf-8-sig")
+            item["sections"] = context_sections(text, item["domains"])
+    else:
+        raise SystemExit(f"unknown context query: {query}")
+    result = {"version": index["version"], "query": query, "files": selected}
+    if query == "daily" and len(json.dumps(result).encode("utf-8")) > 4 * 1024:
+        raise SystemExit("daily context routing metadata exceeds 4096 bytes")
+    return result
 
 
 def read_pack(path: Path) -> dict:
@@ -251,11 +296,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create a source-grounded audit plan.")
     parser.add_argument("--skill-root", type=Path, required=True)
     parser.add_argument("--domain", action="append", default=[], help="Task domain, repeatable.")
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
     parser.add_argument("--context-index", action="store_true", help="Write the machine-readable context router instead of a source audit plan.")
     parser.add_argument("--check", action="store_true", help="With --context-index, fail if the existing index is stale.")
+    parser.add_argument("--query", choices=("daily", "source-audit", "path"), help="Read-only context routing query.")
+    parser.add_argument("--path", help="Indexed relative path for --query path.")
     args = parser.parse_args()
 
+    if args.query:
+        if args.out or args.context_index or args.check:
+            parser.error("--query is read-only and cannot be combined with output options")
+        print(json.dumps(query_context(args.skill_root, args.query, args.domain, args.path), indent=2, sort_keys=True))
+        return
+    if not args.out:
+        parser.error("--out is required unless --query is used")
     if args.context_index:
         payload = build_context_index(args.skill_root)
         text = json.dumps(payload, indent=2, sort_keys=True) + "\n"

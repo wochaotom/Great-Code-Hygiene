@@ -5,10 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import math
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+
+from internal.evidence import evaluate_bundle
+from internal.transaction import apply_transaction, recover_transaction
 from validate_honing_report import load_json as load_honing_json
 from validate_honing_report import validate_report as validate_honing_report_payload
 
@@ -56,8 +61,8 @@ def load_score(path: Path) -> tuple[dict, list[str]]:
     if not isinstance(score, dict):
         return {}, ["score must be a JSON object"]
     errors: list[str] = []
-    if not isinstance(score.get("average"), (int, float)):
-        errors.append("score.average must be numeric")
+    if not isinstance(score.get("average"), (int, float)) or isinstance(score.get("average"), bool) or not math.isfinite(score.get("average", float("nan"))):
+        errors.append("score.average must be finite numeric")
     if not isinstance(score.get("promotion_ready"), bool):
         errors.append("score.promotion_ready must be boolean")
     return score, errors
@@ -88,6 +93,8 @@ def major_promotion_evidence(score: dict, score_path: Path) -> tuple[bool, str]:
 
 
 def resolve_existing_dir(path: Path, label: str) -> tuple[Path | None, list[str]]:
+    if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+        return None, [f"{label} is a link or junction: {path}"]
     try:
         resolved = path.resolve(strict=True)
     except FileNotFoundError:
@@ -112,6 +119,15 @@ def validate_apply_target(current: Path, candidate: Path) -> list[str]:
     errors: list[str] = []
     if current == candidate:
         errors.append("--current and --candidate resolve to the same directory")
+    if current in candidate.parents or candidate in current.parents:
+        errors.append("--current and --candidate must not overlap")
+    for label, root in (("--current", current), ("--candidate", candidate)):
+        if root.is_symlink() or (hasattr(root, "is_junction") and root.is_junction()):
+            errors.append(f"{label} is a link or junction")
+        for child in root.rglob("*"):
+            if child.is_symlink() or (hasattr(child, "is_junction") and child.is_junction()):
+                errors.append(f"{label} contains a link or junction: {child}")
+                break
 
     home = Path.home().resolve()
     dangerous_roots = {
@@ -143,24 +159,6 @@ def planned_deletions(current: Path) -> list[str]:
     ]
 
 
-def copy_skill(candidate: Path, current: Path) -> None:
-    for child in current.iterdir():
-        if child.name in EXCLUDED_NAMES:
-            continue
-        if child.is_dir():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
-    for child in candidate.iterdir():
-        if child.name in EXCLUDED_NAMES:
-            continue
-        dest = current / child.name
-        if child.is_dir():
-            shutil.copytree(child, dest, ignore=shutil.ignore_patterns(*EXCLUDED_NAMES))
-        else:
-            shutil.copy2(child, dest)
-
-
 def validate_honing_report(path: Path) -> list[str]:
     try:
         report = load_honing_json(path)
@@ -172,8 +170,10 @@ def validate_honing_report(path: Path) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gate and promote a candidate skill update.")
     parser.add_argument("--current", type=Path, required=True)
-    parser.add_argument("--candidate", type=Path, required=True)
-    parser.add_argument("--score", type=Path, required=True)
+    parser.add_argument("--candidate", type=Path)
+    evidence = parser.add_mutually_exclusive_group()
+    evidence.add_argument("--score", type=Path, help="Historical diagnostic only; cannot authorize --apply.")
+    evidence.add_argument("--evidence-bundle", type=Path, help="Versioned, hashed evidence bundle for promotion gates.")
     parser.add_argument("--baseline-average", type=float)
     parser.add_argument("--honing-report", type=Path)
     parser.add_argument("--require-honing-report", action="store_true")
@@ -183,9 +183,18 @@ def main() -> None:
         help="Allow non-model-execution evidence for explicit dry-run or non-final gates.",
     )
     parser.add_argument("--apply", action="store_true", help="Actually copy candidate over current.")
+    parser.add_argument("--recover", action="store_true", help="Roll back an incomplete swap or finish the journal while retaining the old-tree backup.")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
 
+    if args.recover:
+        if args.apply or args.score or args.evidence_bundle or args.candidate:
+            parser.error("--recover accepts only --current and optional --log")
+        retained_backup = recover_transaction(args.current)
+        print(json.dumps({"recovered": True, "current": str(args.current), "retained_backup": str(retained_backup) if retained_backup else None}, indent=2, sort_keys=True))
+        return
+    if not args.candidate or not (args.score or args.evidence_bundle):
+        parser.error("--candidate and either --score or --evidence-bundle are required")
     current, current_errors = resolve_existing_dir(args.current, "--current")
     candidate, candidate_errors = resolve_existing_dir(args.candidate, "--candidate")
     errors = current_errors + candidate_errors
@@ -195,61 +204,47 @@ def main() -> None:
         errors.extend(validate_apply_target(current, candidate))
     if args.apply and args.allow_non_major_evidence:
         errors.append("--allow-non-major-evidence cannot be used with --apply")
-
-    score, score_errors = load_score(args.score)
-    errors.extend(score_errors)
-    average = float(score.get("average", 0)) if not score_errors else 0.0
-    promotion_ready = bool(score.get("promotion_ready")) if not score_errors else False
-    if args.baseline_average is not None and average < args.baseline_average:
-        promotion_ready = False
-        errors.append(gate_error("score.average", f">= {args.baseline_average}", average, args.score))
-    if args.require_honing_report and not args.honing_report:
-        promotion_ready = False
-        errors.append("missing required --honing-report")
-    if args.honing_report:
-        report_errors = validate_honing_report(args.honing_report)
-        if report_errors:
-            promotion_ready = False
-            errors.extend(report_errors)
-    has_major_evidence, evidence_error = major_promotion_evidence(score, args.score) if not score_errors else (False, "")
-    if not args.allow_non_major_evidence and not has_major_evidence:
-        promotion_ready = False
-        if evidence_error:
-            errors.append(evidence_error)
-    if errors:
-        promotion_ready = False
-
-    decision = {
+    if args.score:
+        score, score_errors = load_score(args.score)
+        errors.extend(score_errors)
+        average = float(score.get("average", 0)) if not score_errors else None
+        if args.apply:
+            errors.append("legacy --score evidence is diagnostic-only and cannot authorize --apply")
+        if args.baseline_average is not None and average is not None and average < args.baseline_average:
+            errors.append(gate_error("score.average", f">= {args.baseline_average}", average, args.score))
+        if args.require_honing_report and not args.honing_report:
+            errors.append("missing required --honing-report")
+        if args.honing_report:
+            errors.extend(validate_honing_report(args.honing_report))
+        decision = {
+            "diagnostic_only": True,
+            "diagnostic_score_ready": bool(score.get("promotion_ready")) if not score_errors else False,
+            "average": average,
+            "promotion_ready": False,
+            "gates": [{"name": "versioned_evidence", "status": "fail", "detail": "legacy score cannot authorize promotion"}],
+        }
+    else:
+        if current and candidate:
+            decision = evaluate_bundle(args.evidence_bundle, current, candidate, Path(__file__).resolve().parents[1])
+        else:
+            decision = {"promotion_ready": False, "gates": []}
+        if args.baseline_average is not None or args.honing_report or args.require_honing_report or args.allow_non_major_evidence:
+            errors.append("legacy gate options cannot override a versioned evidence bundle")
+    decision.update({
         "decided_at": utc_now(),
         "candidate": str(candidate or args.candidate),
         "current": str(current or args.current),
-        "average": average,
-        "baseline_average": args.baseline_average,
-        "honing_report": str(args.honing_report) if args.honing_report else None,
-        "allow_non_major_evidence": args.allow_non_major_evidence,
-        "major_promotion_evidence": has_major_evidence,
-        "planned_deletions": planned_deletions(current) if current and promotion_ready else [],
-        "promotion_ready": promotion_ready,
+        "planned_deletions": planned_deletions(current) if current and decision["promotion_ready"] else [],
         "applied": False,
         "errors": errors,
-    }
+    })
+    if errors:
+        decision["promotion_ready"] = False
 
-    if promotion_ready and args.apply:
-        print(
-            json.dumps(
-                {
-                    "apply_plan": {
-                        "current": decision["current"],
-                        "candidate": decision["candidate"],
-                        "planned_deletions": decision["planned_deletions"],
-                    }
-                },
-                indent=2,
-                sort_keys=True,
-            )
-        )
-        copy_skill(candidate, current)
+    if decision["promotion_ready"] and args.apply:
+        retained_backup = apply_transaction(candidate, current, decision["baseline_fingerprint"], decision["candidate_fingerprint"])
         decision["applied"] = True
+        decision["retained_backup"] = str(retained_backup)
 
     if args.log:
         args.log.parent.mkdir(parents=True, exist_ok=True)
@@ -257,7 +252,7 @@ def main() -> None:
             handle.write(json.dumps(decision, sort_keys=True) + "\n")
 
     print(json.dumps(decision, indent=2, sort_keys=True))
-    if not promotion_ready:
+    if errors or (args.evidence_bundle and not decision["promotion_ready"]):
         raise SystemExit(1)
 
 

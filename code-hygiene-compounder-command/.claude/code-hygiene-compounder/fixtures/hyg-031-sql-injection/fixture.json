@@ -1,5 +1,6 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "python-unittest", "test_count_min": 2, "expected_failures": ["test_users.UserQueryTests.test_injected_role_does_not_return_admins"]},
   "category": "Security and Data Safety",
   "id": "hyg-031-sql-injection",
   "pass_stat": "unittest_exit_zero",

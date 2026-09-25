@@ -8,17 +8,10 @@ import shutil
 import zipfile
 from pathlib import Path
 
+from internal.package_meta import EXCLUDED_NAMES
+from internal.package_meta import SKILL_NAME
+from internal.package_meta import PACKAGE_DIRS
 
-EXCLUDED_NAMES = {
-    "runs",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".fixture-tmp",
-    ".fixture-work",
-    ".git",
-}
-SKILL_NAME = "code-hygiene-compounder"
 CLAUDE_SKILL_DESCRIPTION = (
     "Improve, review, refactor, harden, test, and evaluate code hygiene with "
     "PASS-100 scoring and source-grounded compounding."
@@ -108,20 +101,27 @@ Skip any step = not verified. Do not treat prior runs, agent reports, generated 
 """
 
 
-def copy_tree(src: Path, dest: Path) -> None:
+def copy_tree(src: Path, dest: Path, extra_excludes: tuple[str, ...] = ()) -> None:
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*EXCLUDED_NAMES))
+    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*EXCLUDED_NAMES, *extra_excludes))
 
 
-def zip_dir(src: Path, zip_path: Path) -> None:
+def zip_dir(src: Path, zip_path: Path, prefix: str = "") -> None:
     if zip_path.exists():
         zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in src.rglob("*"):
+        for path in sorted(src.rglob("*"), key=lambda item: item.relative_to(src).as_posix()):
             relative_path = path.relative_to(src)
             if path.is_file() and not any(part in EXCLUDED_NAMES for part in relative_path.parts):
-                archive.write(path, relative_path)
+                if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+                    raise ValueError(f"unsafe export link: {path}")
+                archive_name = (Path(prefix) / relative_path).as_posix() if prefix else relative_path.as_posix()
+                info = zipfile.ZipInfo(archive_name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                info.external_attr = 0o644 << 16
+                archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
 def read_skill_text(skill_root: Path) -> str:
@@ -265,10 +265,30 @@ def export_portable_prompt(skill_root: Path, out_dir: Path) -> None:
     print(f"Wrote {prompt_path}")
 
 
+def sync_repo(repo_root: Path) -> None:
+    """Refresh tracked distribution copies from the canonical trainer skill."""
+    source = repo_root / PACKAGE_DIRS["codex_skill"]
+    plugin = repo_root / PACKAGE_DIRS["codex_plugin_skill"]
+    claude_ai = repo_root / PACKAGE_DIRS["claude_ai_skill"]
+    command = repo_root / PACKAGE_DIRS["claude_command_package"]
+    if not source.is_dir() or not (repo_root / ".claude-plugin" / "marketplace.json").is_file() or not (repo_root / "plugins" / SKILL_NAME / ".codex-plugin" / "plugin.json").is_file():
+        raise SystemExit("repository or marketplace paths are incomplete")
+    copy_tree(source, plugin, extra_excludes=(".claude-plugin",))
+    claude_ai.mkdir(parents=True, exist_ok=True)
+    (claude_ai / "SKILL.md").write_text(read_skill_text(source), encoding="utf-8")
+    for name in ("references", "scripts", "fixtures"):
+        copy_tree(source / name, claude_ai / name)
+        copy_tree(source / name, command / name)
+    (repo_root / "code-hygiene-compounder-command" / ".claude" / "commands" / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8")
+    portable = repo_root / "portable-prompts" / PORTABLE_PROMPT_NAME
+    portable.write_text(build_portable_prompt(source), encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create a Claude package from this Codex skill.")
-    parser.add_argument("--skill-root", type=Path, required=True)
-    parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--skill-root", type=Path)
+    parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--sync-repo", type=Path, help="Refresh only tracked distribution copies in this repository.")
     parser.add_argument(
         "--format",
         choices=["claude-code-skill", "claude-ai-skill", "legacy-command", "portable-prompt"],
@@ -277,6 +297,15 @@ def main() -> None:
     )
     parser.add_argument("--zip-name", default="claude-code-hygiene-compounder.zip")
     args = parser.parse_args()
+
+    if args.sync_repo:
+        if args.skill_root or args.out_dir:
+            parser.error("--sync-repo cannot be combined with --skill-root or --out-dir")
+        sync_repo(args.sync_repo.resolve())
+        print(f"Synced tracked editions in {args.sync_repo}")
+        return
+    if not args.skill_root or not args.out_dir:
+        parser.error("--skill-root and --out-dir are required for exports")
 
     if args.format == "portable-prompt":
         export_portable_prompt(args.skill_root, args.out_dir)

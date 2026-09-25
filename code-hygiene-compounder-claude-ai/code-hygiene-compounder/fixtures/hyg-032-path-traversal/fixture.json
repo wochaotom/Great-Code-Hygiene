@@ -1,5 +1,6 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "python-unittest", "test_count_min": 5, "expected_failures": ["test_downloads.DownloadPathTests.test_double_encoded_parent_traversal_is_rejected", "test_downloads.DownloadPathTests.test_encoded_parent_traversal_is_rejected", "test_downloads.DownloadPathTests.test_parent_traversal_is_rejected", "test_downloads.DownloadPathTests.test_sibling_prefix_traversal_is_rejected"]},
   "category": "Security and Data Safety",
   "id": "hyg-032-path-traversal",
   "pass_stat": "unittest_exit_zero",

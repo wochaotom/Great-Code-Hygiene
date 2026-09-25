@@ -25,10 +25,10 @@ For source-grounded honing, promotion requires a valid honing report:
 
 ```powershell
 python scripts/validate_honing_report.py --report runs/honing-report.json
-python scripts/promote_candidate.py --current . --candidate candidate-skill --score runs/score.json --honing-report runs/honing-report.json --require-honing-report --apply
+python code-hygiene-compounder/scripts/promote_candidate.py --current path/to/installed-skill --candidate path/to/candidate-skill --evidence-bundle path/to/promotion-bundle.json --apply
 ```
 
-The report must include activated sources, checklist results for every activated source, principles checked, PASS-100 score, a promotion decision, and source-backed lessons for promote decisions.
+The bundle references a hashed honing report. The report must include activated sources, checklist results for every activated source, principles checked, PASS-100 score, a promotion decision, and source-backed lessons for promote decisions. A honing report is required for source-backed changes but does not replace model-execution or independent-review evidence.
 
 ## Important Limits
 

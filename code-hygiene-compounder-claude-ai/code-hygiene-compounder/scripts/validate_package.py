@@ -6,15 +6,18 @@ import fnmatch
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 sys.dont_write_bytecode = True
+from internal.package_meta import PACKAGE_DIRS
+from internal.package_meta import PLUGIN_VERSION
 from export_claude_package import COMMAND_TEXT
 from export_claude_package import EXCLUDED_NAMES
 from export_claude_package import build_portable_prompt
 from export_claude_package import read_skill_text
 from source_audit_plan import context_index_errors
-PACKAGE_DIRS = {'codex_skill': Path('code-hygiene-compounder'), 'codex_plugin_skill': Path('plugins/code-hygiene-compounder/skills/code-hygiene-compounder'), 'claude_ai_skill': Path('code-hygiene-compounder-claude-ai/code-hygiene-compounder'), 'claude_command_package': Path('code-hygiene-compounder-command/.claude/code-hygiene-compounder')}
 EXPECTED_NATIVE_AI_SKILL_FILES = {Path('.agents/skills/code-hygiene/SKILL.md'), Path('.cursor/skills/code-hygiene/SKILL.md')}
 EXPECTED_SKILL_FILES = {Path('code-hygiene/SKILL.md'), Path('code-hygiene-skeleton/SKILL.md'), Path('code-hygiene-compounder/SKILL.md'), Path('code-hygiene-compounder-claude-ai/code-hygiene-compounder/SKILL.md'), Path('plugins/code-hygiene-compounder/skills/code-hygiene-compounder/SKILL.md')} | EXPECTED_NATIVE_AI_SKILL_FILES
 EXPECTED_COMMAND_FILES = {Path('code-hygiene-compounder-command/.claude/commands/code-hygiene.md')}
@@ -28,7 +31,6 @@ EXPECTED_CONTEXT_FILES = {Path('code-hygiene-compounder/references/context-index
 MARKETPLACE_NAME = 'great-code-hygiene'
 PLUGIN_NAME = 'code-hygiene-compounder'
 CODEX_PLUGIN_SOURCE = './plugins/code-hygiene-compounder'
-PLUGIN_VERSION = '0.2.0'
 PLUGIN_SOURCE = './code-hygiene-compounder'
 PLUGIN_REPOSITORY = 'https://github.com/wochaotom/Great-Code-Hygiene'
 MAX_RELATIVE_PATH_LENGTH = 140
@@ -428,12 +430,53 @@ def validate(repo_root: Path, allow_runs: bool) -> dict:
     check_context_index(repo_root / PACKAGE_DIRS['codex_skill'], reporter)
     check_export_sync(repo_root, reporter)
     return {'valid': not reporter.errors, 'repo_root': str(repo_root), 'checks': reporter.checks, 'errors': reporter.errors, 'warnings': reporter.warnings}
+
+
+def doctor(repo_root: Path, runtime_skill_root: Path | None = None) -> dict:
+    """Inspect local prerequisites and explicitly supplied parity without mutation."""
+    checks: list[dict] = []
+    python_ok = sys.version_info >= (3, 11)
+    checks.append({'name': 'python', 'status': 'pass' if python_ok else 'fail', 'detail': {'executable': sys.executable, 'version': sys.version.split()[0]}})
+    node = shutil.which('node')
+    try:
+        completed = subprocess.run([node, '--version'], capture_output=True, text=True, timeout=5) if node else None
+        node_version = completed.stdout.strip() if completed and completed.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        node_version = None
+    checks.append({'name': 'node24', 'status': 'pass' if node_version and node_version.startswith('v24.') else 'fail', 'detail': {'executable': node, 'version': node_version}})
+    package = validate(repo_root, False)
+    checks.append({'name': 'package', 'status': 'pass' if package['valid'] else 'fail', 'detail': {'errors': package['errors']}})
+    if runtime_skill_root is None:
+        checks.append({'name': 'runtime_parity', 'status': 'not-applicable', 'detail': 'no runtime skill root supplied'})
+    else:
+        canonical = repo_root / PACKAGE_DIRS['codex_skill']
+        if runtime_skill_root.is_dir():
+            canonical_files = tree_fingerprint(canonical)
+            runtime_files = tree_fingerprint(runtime_skill_root)
+            equal = canonical_files == runtime_files
+            detail = {'missing': sorted(set(canonical_files) - set(runtime_files)), 'extra': sorted(set(runtime_files) - set(canonical_files)), 'changed': sorted(key for key in set(canonical_files) & set(runtime_files) if canonical_files[key] != runtime_files[key])}
+        else:
+            equal, detail = False, {'error': f'runtime skill missing: {runtime_skill_root}'}
+        checks.append({'name': 'runtime_parity', 'status': 'pass' if equal else 'fail', 'detail': detail})
+    return {'valid': all(check['status'] != 'fail' for check in checks), 'checks': checks}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Validate the package workspace shape.')
     parser.add_argument('--repo-root', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--allow-runs', action='store_true', help='Do not fail when runs/ directories exist.')
     parser.add_argument('--json', action='store_true', help='Print full JSON instead of a short summary.')
+    parser.add_argument('--doctor', action='store_true', help='Read-only interpreter, prerequisite, package, and parity checks.')
+    parser.add_argument('--runtime-skill-root', type=Path, help='Installed skill root to compare explicitly in --doctor mode.')
     args = parser.parse_args()
+    if args.runtime_skill_root and not args.doctor:
+        parser.error('--runtime-skill-root requires --doctor')
+    if args.doctor:
+        report = doctor(args.repo_root.resolve(), args.runtime_skill_root)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        if not report['valid']:
+            raise SystemExit(1)
+        return
     result = validate(args.repo_root, args.allow_runs)
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

@@ -35,7 +35,7 @@ Use this protocol to improve the skill without letting it drift.
 
 - **Audit-backed run:** score a real project session using observed misses, artifacts, and reviewer judgment. This is useful for compounding lessons from real work, but it is not a fully automated benchmark.
 - **Model-execution run:** give each eval prompt to an agent in a fresh task context, collect its actual output, then score the artifact. Use this for stronger evidence before major promotions.
-- **Script-only run:** generate batches, validate result JSON, calculate scores, and gate promotions. This tests the harness, not the model behavior.
+- **Script-only run:** generate batches, validate result JSON, and calculate diagnostic scores. This tests the harness, not model behavior or promotion readiness.
 
 Label every score with one of these run types. Do not compare audit-backed scores and model-execution scores as if they were the same measurement.
 
@@ -65,7 +65,8 @@ Promote automatically only when all conditions hold:
 - Transcript fixtures pass when the change affects evidence-reporting or agent-process transcripts.
 - Candidate change is tied to an observed failure, repeated real-use miss, or source-backed rule.
 - Candidate source-backed rules must reference `source-registry.md` or an admitted, weighted source.
-- Source-grounded promotions require a valid honing report checked by `scripts/validate_honing_report.py` and passed to `scripts/promote_candidate.py --require-honing-report`.
+- Source-grounded promotions require a valid honing report checked by `scripts/validate_honing_report.py` and referenced in the versioned evidence bundle.
+- Only a v2 evidence bundle containing predeclared matched trials, hashed external execution records, verification artifacts, and independent review can authorize `promote_candidate.py --apply`. Legacy `--score` remains diagnostic-only.
 - Instruction length stays concise; longer updates need measurable benefit.
 - Candidate does not add broad, vague rules such as "be more careful" without operational behavior.
 - Candidate removes, merges, or narrows existing guidance when possible.

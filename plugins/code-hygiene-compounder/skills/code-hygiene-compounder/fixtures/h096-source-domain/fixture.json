@@ -1,5 +1,6 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "python-unittest", "test_count_min": 4, "expected_failures": ["test_source_audit_plan.SourceAuditDomainTests.test_header_and_cookie_aliases_are_ordinary_http_language", "test_source_audit_plan.SourceAuditDomainTests.test_http_domain_activates_http_protocol_pack"]},
   "category": "Agent Process Hygiene",
   "id": "hyg-096-source-audit-http-domain",
   "pass_stat": "unittest_exit_zero",

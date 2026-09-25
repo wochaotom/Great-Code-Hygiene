@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +26,38 @@ def read_json(path: Path) -> dict:
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_clean_repository_package_is_consistent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            report = validate_package.validate(clean, False)
+            self.assertTrue(report["valid"], report["errors"])
+
+    def test_doctor_is_read_only_and_explicit_runtime_mismatch_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            canonical = root / "code-hygiene-compounder"
+            runtime = root / "runtime"
+            canonical.mkdir()
+            runtime.mkdir()
+            (canonical / "SKILL.md").write_text("canonical", encoding="utf-8")
+            (runtime / "SKILL.md").write_text("stale", encoding="utf-8")
+            with patch("validate_package.validate", return_value={"valid": True, "errors": []}), patch("validate_package.shutil.which", return_value="node"), patch("validate_package.subprocess.run", return_value=CompletedProcess(["node", "--version"], 0, "v24.0.0\n", "")):
+                report = validate_package.doctor(root, runtime)
+            self.assertFalse(report["valid"])
+            self.assertEqual(next(item for item in report["checks"] if item["name"] == "runtime_parity")["status"], "fail")
+            self.assertEqual((canonical / "SKILL.md").read_text(encoding="utf-8"), "canonical")
+            self.assertEqual((runtime / "SKILL.md").read_text(encoding="utf-8"), "stale")
+
+    def test_full_suite_runs_on_three_platforms_with_node_24(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "hygiene.yml").read_text(
+            encoding="utf-8"
+        )
+        for platform in ("ubuntu-latest", "windows-latest", "macos-latest"):
+            self.assertIn(platform, workflow)
+        self.assertIn('node-version: "24"', workflow)
+        self.assertIn("python -B -m unittest discover -s tests -v", workflow)
+
     def test_public_plugin_manifests_share_semver(self) -> None:
         claude = read_json(
             REPO_ROOT / "code-hygiene-compounder" / ".claude-plugin" / "plugin.json"

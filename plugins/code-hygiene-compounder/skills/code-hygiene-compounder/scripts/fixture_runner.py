@@ -16,6 +16,63 @@ sys.dont_write_bytecode = True
 from pass100_runner import load_prompts
 ALLOWED_BASELINE_EXPECTATIONS = {"fail", "pass"}
 ALLOWED_MODES = {"repo", "transcript"}
+RESULT_PREFIX = "CODE_HYGIENE_TEST_RESULT="
+EVENT_PREFIX = "CODE_HYGIENE_TEST_EVENT="
+
+
+def parse_test_report(stdout: str, framework: str) -> dict | None:
+    if framework == "python-unittest":
+        lines = [line[len(RESULT_PREFIX):] for line in stdout.splitlines() if line.startswith(RESULT_PREFIX)]
+        if len(lines) != 1:
+            return None
+        try:
+            report = json.loads(lines[0])
+        except json.JSONDecodeError:
+            return None
+        return report if isinstance(report, dict) and report.get("framework") == framework else None
+    if framework == "node-test":
+        try:
+            events = [json.loads(line[len(EVENT_PREFIX):]) for line in stdout.splitlines() if line.startswith(EVENT_PREFIX)]
+        except json.JSONDecodeError:
+            return None
+        summaries = [event for event in events if event.get("event") == "test:summary"]
+        if len(summaries) != 1:
+            return None
+        failures = [event for event in events if event.get("event") == "test:fail" and event.get("error_code") == "ERR_ASSERTION"]
+        errors = [event for event in events if event.get("event") == "test:fail" and event not in failures]
+        return {
+            "framework": framework,
+            "tests_run": summaries[0].get("counts", {}).get("tests"),
+            "failures": sorted(event["name"] for event in failures),
+            "errors": sorted(event["name"] for event in errors),
+        }
+    return None
+
+
+def classify_test_outcome(command_result: dict, signature: dict) -> dict:
+    if command_result.get("timed_out"):
+        return {"outcome": "timeout", "signature_matched": False}
+    if command_result.get("infrastructure_error"):
+        return {"outcome": "infrastructure_error", "signature_matched": False}
+    report = command_result.get("test_report")
+    if not isinstance(report, dict):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if signature.get("framework") and report.get("framework") != signature["framework"]:
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    count = report.get("tests_run")
+    if not isinstance(count, int) or isinstance(count, bool) or count == 0:
+        return {"outcome": "no_tests", "signature_matched": False}
+    failures = report.get("failures")
+    errors = report.get("errors")
+    if not isinstance(failures, list) or not isinstance(errors, list):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if count < signature.get("test_count_min", 1) or errors:
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if failures:
+        expected = signature.get("expected_failures")
+        matched = isinstance(expected, list) and sorted(expected) == sorted(failures) and isinstance(command_result.get("exit_code"), int) and command_result["exit_code"] != 0
+        return {"outcome": "expected_assertion_failure" if matched else "unexpected_test_error", "signature_matched": matched}
+    return {"outcome": "pass" if command_result.get("exit_code") == 0 else "unexpected_test_error", "signature_matched": False}
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -88,12 +145,36 @@ def validate_fixture(item: dict, known_prompt_ids: set[str] | None) -> list[str]
     if mode == "repo":
         require_string(item, "repo_dir", str(label), errors)
         validate_command(item.get("test_command"), str(label), errors)
+        signature = item.get("baseline_signature")
+        if item.get("baseline_expected") == "fail":
+            if not isinstance(signature, dict):
+                errors.append(f"{label}.baseline_signature must declare expected assertion failures")
+            elif not isinstance(signature.get("expected_failures"), list) or not signature["expected_failures"]:
+                errors.append(f"{label}.baseline_signature.expected_failures must be non-empty")
+            elif any(not isinstance(name, str) or not name for name in signature["expected_failures"]):
+                errors.append(f"{label}.baseline_signature.expected_failures values must be non-empty strings")
+            if isinstance(signature, dict):
+                if signature.get("framework") not in {"python-unittest", "node-test"}:
+                    errors.append(f"{label}.baseline_signature.framework is unsupported")
+                count_min = signature.get("test_count_min")
+                if not isinstance(count_min, int) or isinstance(count_min, bool) or count_min < 1:
+                    errors.append(f"{label}.baseline_signature.test_count_min must be positive")
+                failures = signature.get("expected_failures")
+                if isinstance(failures, list) and all(isinstance(name, str) for name in failures) and len(failures) != len(set(failures)):
+                    errors.append(f"{label}.baseline_signature.expected_failures must be unique")
     if mode == "transcript":
         markers = item.get("expected_markers")
         if not isinstance(markers, list) or not markers:
             errors.append(f"{label}.expected_markers must be a non-empty array")
         elif any(not isinstance(marker, str) or not marker.strip() for marker in markers):
             errors.append(f"{label}.expected_markers values must be non-empty strings")
+        if item.get("baseline_expected") == "fail":
+            signature = item.get("baseline_signature")
+            missing = signature.get("expected_missing_markers") if isinstance(signature, dict) else None
+            if not isinstance(missing, list) or not missing or any(not isinstance(marker, str) or not marker.strip() for marker in missing):
+                errors.append(f"{label}.baseline_signature.expected_missing_markers must be a non-empty string array")
+            elif isinstance(markers, list) and (len(set(missing)) != len(missing) or not set(missing).issubset(markers)):
+                errors.append(f"{label}.baseline_signature.expected_missing_markers must be unique expected markers")
 
     prompt_id = item.get("prompt_id")
     if known_prompt_ids is not None and isinstance(prompt_id, str) and prompt_id not in known_prompt_ids:
@@ -174,17 +255,27 @@ def command_for_current_python(command: list[str]) -> list[str]:
     return [sys.executable if part == "{python}" else part for part in command]
 
 
+def structured_command(command: list[str]) -> tuple[list[str], str]:
+    internal = Path(__file__).resolve().parent / "internal"
+    if len(command) >= 6 and command[1:4] == ["-m", "unittest", "discover"] and command[4] == "-s":
+        return [command[0], str(internal / "unittest_reporter.py"), command[5]], "python-unittest"
+    if len(command) >= 3 and command[1] == "--test":
+        return [command[0], f"--test-reporter={(internal / 'node_reporter.mjs').as_uri()}", *command[1:]], "node-test"
+    raise SystemExit("fixture test command has no supported structured reporter")
+
+
 def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
     command = item.get("test_command")
     if not isinstance(command, list):
         raise SystemExit(f"{item.get('id')}: invalid test_command")
     command = command_for_current_python(command)
+    effective_command, framework = structured_command(command)
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            command,
+            effective_command,
             cwd=target,
             text=True,
             capture_output=True,
@@ -192,11 +283,15 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
             env=env,
         )
         duration_ms = int((time.monotonic() - started) * 1000)
+        report = parse_test_report(completed.stdout, framework)
         return {
             "command": command,
+            "effective_command": effective_command,
+            "framework": framework,
+            "test_report": report,
             "exit_code": completed.returncode,
             "duration_ms": duration_ms,
-            "tests_passed": completed.returncode == 0,
+            "tests_passed": completed.returncode == 0 and isinstance(report, dict) and report.get("tests_run", 0) > 0 and not report.get("failures") and not report.get("errors"),
             "stdout_tail": tail(completed.stdout),
             "stderr_tail": tail(completed.stderr),
             "timed_out": False,
@@ -205,12 +300,29 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
         duration_ms = int((time.monotonic() - started) * 1000)
         return {
             "command": command,
+            "effective_command": effective_command,
+            "framework": framework,
+            "test_report": None,
             "exit_code": None,
             "duration_ms": duration_ms,
             "tests_passed": False,
-            "stdout_tail": tail(exc.stdout or ""),
-            "stderr_tail": tail(exc.stderr or ""),
+            "stdout_tail": tail((exc.stdout or b"").decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")),
+            "stderr_tail": tail((exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")),
             "timed_out": True,
+        }
+    except OSError as exc:
+        return {
+            "command": command,
+            "effective_command": effective_command,
+            "framework": framework,
+            "test_report": None,
+            "exit_code": None,
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "tests_passed": False,
+            "stdout_tail": "",
+            "stderr_tail": str(exc),
+            "timed_out": False,
+            "infrastructure_error": True,
         }
 
 
@@ -237,8 +349,9 @@ def run_fixture_target(item: dict, target: Path, timeout: int) -> dict:
     if not target.is_dir():
         raise SystemExit(f"target does not exist or is not a directory: {target}")
     command_result = run_fixture_command(item, target, timeout)
+    outcome = classify_test_outcome(command_result, item.get("baseline_signature", {}))
     protected_failures = protected_file_failures(item, target)
-    resolved = bool(command_result["tests_passed"]) and not protected_failures
+    resolved = outcome["outcome"] == "pass" and not protected_failures
     return {
         "fixture_id": item["id"],
         "prompt_id": item["prompt_id"],
@@ -247,6 +360,7 @@ def run_fixture_target(item: dict, target: Path, timeout: int) -> dict:
         "resolved": resolved,
         "protected_files_ok": not protected_failures,
         "protected_file_failures": protected_failures,
+        **outcome,
         **command_result,
     }
 
@@ -276,6 +390,9 @@ def run_transcript_fixture(item: dict, target: Path) -> dict:
     missing = [marker for marker in markers if isinstance(marker, str) and marker.casefold() not in actual_text]
     expected_missing = [marker for marker in markers if isinstance(marker, str) and marker.casefold() not in expected_text]
     resolved = not missing and not expected_missing
+    declared = item.get("baseline_signature", {}).get("expected_missing_markers", [])
+    signature_matched = bool(missing) and not expected_missing and sorted(missing) == sorted(declared)
+    outcome = "pass" if resolved else "expected_assertion_failure" if signature_matched else "unexpected_test_error"
     return {
         "fixture_id": item["id"],
         "prompt_id": item["prompt_id"],
@@ -283,6 +400,9 @@ def run_transcript_fixture(item: dict, target: Path) -> dict:
         "mode": "transcript",
         "target": str(target),
         "resolved": resolved,
+        "outcome": outcome,
+        "signature_matched": signature_matched,
+        "protected_files_ok": True,
         "missing_markers": missing,
         "expected_missing_markers": expected_missing,
         "actual_transcript": str(actual_path),
@@ -380,7 +500,7 @@ def cmd_baseline(args: argparse.Namespace) -> None:
             expected = item["baseline_expected"]
             result["baseline_expected"] = expected
             result["expected_outcome_met"] = (
-                (expected == "fail" and not result["resolved"])
+                (expected == "fail" and result.get("outcome") == "expected_assertion_failure" and result["protected_files_ok"])
                 or (expected == "pass" and result["resolved"])
             )
             results.append(result)

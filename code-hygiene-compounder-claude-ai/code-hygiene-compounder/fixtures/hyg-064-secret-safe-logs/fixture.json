@@ -1,5 +1,6 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "python-unittest", "test_count_min": 5, "expected_failures": ["test_logging_helpers.FailureLogTests.test_redacts_exact_secret_key_names", "test_logging_helpers.FailureLogTests.test_redacts_secret_key_variants", "test_logging_helpers.FailureLogTests.test_redacts_secrets_from_log_payload"]},
   "category": "Error Handling and Observability",
   "id": "hyg-064-secret-safe-logs",
   "pass_stat": "unittest_exit_zero",

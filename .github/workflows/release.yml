@@ -21,6 +21,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
       - name: Verify tag and manifest versions
         shell: python
         run: |
@@ -44,10 +49,10 @@ jobs:
       - name: Run release gates
         run: |
           python -B -m unittest discover -s tests -v
-          python code-hygiene-compounder/scripts/validate_package.py --repo-root .
-          python code-hygiene-compounder/scripts/guardrail_check.py --skill-root code-hygiene-compounder
-          python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures validate --suite code-hygiene-compounder/references/eval-prompts.md
-          python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures baseline
+          python -B code-hygiene-compounder/scripts/validate_package.py --repo-root . --doctor
+          python -B code-hygiene-compounder/scripts/guardrail_check.py --skill-root code-hygiene-compounder
+          python -B code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures validate --suite code-hygiene-compounder/references/eval-prompts.md
+          python -B code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures baseline
 
       - name: Build release assets
         shell: bash
@@ -55,9 +60,9 @@ jobs:
           set -euo pipefail
           dist="${RUNNER_TEMP}/release"
           mkdir -p "$dist"
-          python code-hygiene-compounder/scripts/export_claude_package.py --skill-root code-hygiene-compounder --out-dir "${RUNNER_TEMP}/claude-code" --format claude-code-skill --zip-name code-hygiene-compounder-claude-code.zip
-          python code-hygiene-compounder/scripts/export_claude_package.py --skill-root code-hygiene-compounder --out-dir "${RUNNER_TEMP}/claude-ai" --format claude-ai-skill --zip-name code-hygiene-compounder-claude-ai.zip
-          python code-hygiene-compounder/scripts/export_claude_package.py --skill-root code-hygiene-compounder --out-dir "${RUNNER_TEMP}/legacy" --format legacy-command --zip-name code-hygiene-compounder-legacy-command.zip
+          python -B code-hygiene-compounder/scripts/export_claude_package.py --skill-root code-hygiene-compounder --out-dir "${RUNNER_TEMP}/claude-code" --format claude-code-skill --zip-name code-hygiene-compounder-claude-code.zip
+          python -B code-hygiene-compounder/scripts/export_claude_package.py --skill-root code-hygiene-compounder --out-dir "${RUNNER_TEMP}/claude-ai" --format claude-ai-skill --zip-name code-hygiene-compounder-claude-ai.zip
+          python -B code-hygiene-compounder/scripts/export_claude_package.py --skill-root code-hygiene-compounder --out-dir "${RUNNER_TEMP}/legacy" --format legacy-command --zip-name code-hygiene-compounder-legacy-command.zip
           cp "${RUNNER_TEMP}/claude-code/code-hygiene-compounder-claude-code.zip" "$dist/"
           cp "${RUNNER_TEMP}/claude-ai/code-hygiene-compounder-claude-ai.zip" "$dist/"
           cp "${RUNNER_TEMP}/legacy/code-hygiene-compounder-legacy-command.zip" "$dist/"
@@ -65,15 +70,15 @@ jobs:
           import hashlib
           import os
           from pathlib import Path
-          from zipfile import ZIP_DEFLATED, ZipFile
+          import sys
+
+          sys.path.insert(0, str(Path("code-hygiene-compounder/scripts").resolve()))
+          from export_claude_package import zip_dir
 
           dist = Path(os.environ["DIST"])
           for source_name in ("code-hygiene", "code-hygiene-skeleton"):
               source = Path(source_name)
-              with ZipFile(dist / f"{source_name}.zip", "w", ZIP_DEFLATED) as archive:
-                  for path in sorted(source.rglob("*")):
-                      if path.is_file() and "__pycache__" not in path.parts:
-                          archive.write(path, path.relative_to(source.parent))
+              zip_dir(source, dist / f"{source_name}.zip", prefix=source_name)
           checksums = []
           for path in sorted(dist.glob("*.zip")):
               checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")

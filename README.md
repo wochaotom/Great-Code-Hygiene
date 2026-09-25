@@ -9,7 +9,7 @@ hardening, and verified agent work.**
 [![Antigravity Skill](https://img.shields.io/badge/Antigravity-Skill-lightgrey)](#antigravity)
 [![npx skills](https://img.shields.io/badge/npx-skills-orange)](#quick-start)
 [![PASS-100](https://img.shields.io/badge/PASS--100-rubric-purple)](docs/power-users.md#evaluation-and-pass-100)
-[![Version](https://img.shields.io/badge/version-0.2.0-0f766e)](https://github.com/wochaotom/Great-Code-Hygiene/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0-0f766e)](https://github.com/wochaotom/Great-Code-Hygiene/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](#license)
 
 Great Code Hygiene gives coding agents a disciplined way to work inside real
@@ -72,8 +72,8 @@ promotion tooling, and package exporters.
 
 Training never starts merely because the skill was installed. The user must
 ask for training, scoring, source-grounded honing, export, or skill evolution.
-A major promotion requires model-execution evidence or independent review in
-addition to deterministic script checks.
+A promotion requires matched fresh-context model-execution records and an
+independent review of those records, in addition to deterministic checks.
 
 ### Skeleton: `code-hygiene-skeleton`
 
@@ -393,8 +393,9 @@ The loop has four safeguards:
   separately instead of treating every green artifact as model proof.
 - Sparse fixtures, generated matrices, and independent real tasks cover
   different failure modes without becoming one interchangeable score.
-- Promotion requires baseline, category, fixture, package, and overtraining
-  gates; phase advancement remains a human decision.
+- Promotion requires versioned execution artifacts, independent review,
+  baseline, category, fixture, package, and overtraining gates; phase
+  advancement remains a human decision.
 
 The source-admission policy, complete PASS-100 rubric, promotion controls, and
 responsibility map for all 12 deterministic scripts are in

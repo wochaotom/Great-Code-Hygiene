@@ -204,7 +204,7 @@ kept
         script_dir = REPO_ROOT / "code-hygiene-compounder" / "scripts"
         script_names = sorted(
             path.relative_to(script_dir).as_posix()
-            for path in script_dir.rglob("*.py")
+            for path in script_dir.glob("*.py")
             if not any(
                 part.startswith("_") for part in path.relative_to(script_dir).parts
             )

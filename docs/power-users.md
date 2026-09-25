@@ -312,13 +312,65 @@ failure, independent evidence, or an admitted source-backed rule.
 
 ### Promotion and Overtraining Control
 
-A candidate should be promoted only after the relevant result validation,
-baseline comparison, fixture checks, package parity, and guardrail checks pass.
-The candidate must address an observed failure or source-backed principle,
-remain concise, and avoid weakening critical categories.
+A candidate can be applied only through a v2 evidence bundle passed to
+`promote_candidate.py --evidence-bundle`. A score file passed with `--score`
+remains readable for diagnosis but cannot authorize `--apply`. The bundle
+references SHA-256 checked artifacts: a predeclared plan, matched baseline and
+candidate result records, fresh-context external execution records and captured
+outputs, target snapshots, verification results, and an independent review that inspected them.
+Hashes establish artifact integrity, not that execution really happened;
+reviewers must inspect the actual capture. The verifier cannot authenticate an
+operator who fabricates every record, including reviewer output. Synthetic
+accepted-path tests prove only gate behavior, never an actual promotion.
+Script-only and audit-backed scores
+cannot be mixed with model-execution scores for promotion.
+
+The accepted verifier, rubric, suite, fixtures, and policy must remain outside
+the candidate tree. Candidate edits to those controls require ordinary reviewed
+repository maintenance. A promotion also requires structural budgets, package
+parity, applicable fixture checks, no mean or critical-category regression on
+any evaluated prompt,
+a focused average of at least 85, and a predeclared gain (or equal behavior with
+smaller active instructions). Each target ID binds to a nonempty snapshot
+artifact in the plan and execution record; hard mode needs three distinct
+snapshot hashes. The reviewer must inspect the snapshots as well as run records.
+Source-backed edits need a valid honing report in the bundle. Unavailable gates
+fail; they do not become implicit passes.
+
+Installation stages the candidate, verifies its fingerprint, journals the
+transaction, and swaps directories. A pending journal blocks another apply
+until `promote_candidate.py --current path/to/skill --recover` rolls back an
+incomplete swap or closes a verified commit journal. Runtime data excluded
+from promotion is moved into the new installation. The previous tree is
+retained at the reported `retained_backup` path even after a successful apply;
+quiesce writers and inspect it before manual removal. This avoids deleting a
+late write into the old tree during automatic cleanup.
+If runtime data appears in both trees or remains in the backup after the move,
+the journal and backup remain intact for manual reconciliation.
 
 Phase advancement remains a human decision. The trainer can recommend more
 coverage but cannot declare that a broader eval phase is warranted on its own.
+
+### Historical Evidence Audit
+
+The v0.3.0 audit inspected reachable Git history, retained local evidence, and
+available CI artifacts. It found 55 existing promoted lessons and four named
+post-release promotion commits. No target-level model outputs, matched score
+records, reviewer records, or promotion decisions were retained for those
+lessons. All 55 are therefore **unverifiable**, not contradicted, against the
+requirements in force when they were added; none is eligible under the new v2
+protocol. Existing lessons and Git history are preserved. A passing package CI
+run is not evidence that a model-execution promotion gate passed.
+
+### Migration From Score Files
+
+Existing result files can still be validated and analyzed. For a new promotion,
+predeclare targets, trials, critical prompts, model, harness, runtime, and the
+accepted control hashes before running either arm. Capture each fresh external
+run's output and verification, score matched trials under the same rubric, and
+obtain an independent review of those artifacts. Supply their relative paths
+and hashes in a v2 bundle; run without `--apply` first to inspect every gate.
+Do not use synthetic accepted-path tests as evidence of real model behavior.
 
 ### What the Scripts Automate
 
