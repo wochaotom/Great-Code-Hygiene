@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +13,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1] / "code-hygiene-compounder" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from internal.transaction import apply_transaction, journal_path, recover_transaction
+from internal.transaction import apply_transaction, journal_path, recover_transaction, write_journal
 from internal.evidence import tree_digest
 
 
@@ -21,6 +22,14 @@ def approved_apply(candidate: Path, current: Path, after_phase=None) -> None:
 
 
 class TransactionTests(unittest.TestCase):
+    def test_journal_bytes_are_flushed_before_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "journal.json"
+            with patch("internal.transaction.os.fsync", wraps=os.fsync) as flush:
+                write_journal(journal, {"phase": "prepared"})
+            self.assertGreaterEqual(flush.call_count, 1)
+            self.assertEqual(__import__("json").loads(journal.read_text(encoding="utf-8"))["phase"], "prepared")
+
     def test_candidate_changed_after_approval_is_not_installed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -187,6 +196,39 @@ class TransactionTests(unittest.TestCase):
             self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "new")
             self.assertEqual((current / "runs" / "evidence.json").read_text(encoding="utf-8"), "retained")
             self.assertFalse(journal_path(current).exists())
+
+    def test_nested_runtime_data_is_preserved_and_backup_is_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            (current / "references" / "runs").mkdir(parents=True)
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+            (current / "references" / "runs" / "evidence.json").write_text("retained", encoding="utf-8")
+            backup = apply_transaction(candidate, current, tree_digest(current), tree_digest(candidate))
+            self.assertEqual((current / "references" / "runs" / "evidence.json").read_text(encoding="utf-8"), "retained")
+            self.assertFalse((backup / "references" / "runs").exists())
+
+    def test_nested_runtime_data_in_backup_blocks_committed_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def late_writer(phase: str) -> None:
+                if phase == "committed":
+                    state = __import__("json").loads(journal_path(current).read_text(encoding="utf-8"))
+                    path = Path(state["backup"]) / "references" / "runs"
+                    path.mkdir(parents=True)
+                    (path / "late.json").write_text("late", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "runtime data remains in backup"):
+                approved_apply(candidate, current, after_phase=late_writer)
+            self.assertTrue(journal_path(current).exists())
 
     def test_interrupted_transaction_blocks_and_recovers(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

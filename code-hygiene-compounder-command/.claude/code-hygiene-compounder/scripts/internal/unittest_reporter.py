@@ -16,6 +16,11 @@ class RecordingResult(unittest.TextTestResult):
         super().__init__(*args, **kwargs)
         self.failed_ids: list[str] = []
         self.error_ids: list[str] = []
+        self.passed_ids: list[str] = []
+
+    def addSuccess(self, test):
+        self.passed_ids.append(test.id())
+        super().addSuccess(test)
 
     def addFailure(self, test, err):
         self.failed_ids.append(test.id())
@@ -27,19 +32,25 @@ class RecordingResult(unittest.TextTestResult):
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: unittest_reporter.py TEST_DIRECTORY")
+    if len(sys.argv) != 3:
+        raise SystemExit("usage: unittest_reporter.py TEST_DIRECTORY REPORT_PATH")
     sys.path.insert(0, str(Path.cwd()))
     suite = unittest.defaultTestLoader.discover(sys.argv[1])
     runner = unittest.TextTestRunner(resultclass=RecordingResult)
     result = runner.run(suite)
-    print(PREFIX + json.dumps({
+    report = {
         "framework": "python-unittest",
         "tests_run": result.testsRun,
+        "skipped": len(result.skipped),
+        "expected_failures": len(result.expectedFailures),
         "failures": sorted(result.failed_ids),
         "errors": sorted(result.error_ids),
-    }, sort_keys=True))
-    return 0 if result.wasSuccessful() and result.testsRun > 0 else 1
+        "passed": sorted(result.passed_ids),
+    }
+    Path(sys.argv[2]).write_text(json.dumps(report, sort_keys=True), encoding="utf-8")
+    print(PREFIX + json.dumps(report, sort_keys=True))
+    executed = result.testsRun - len(result.skipped) - len(result.expectedFailures)
+    return 0 if result.wasSuccessful() and executed > 0 else 1
 
 
 if __name__ == "__main__":

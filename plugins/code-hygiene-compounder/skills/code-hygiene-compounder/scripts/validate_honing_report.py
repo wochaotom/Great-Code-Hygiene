@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 
@@ -89,7 +90,7 @@ def validate_report(report: dict, strict: bool = True) -> list[str]:
             errors.append(f"missing checklist_results for activated sources: {', '.join(missing)}")
 
     score = report.get("pass100_score")
-    if not isinstance(score, (int, float)) or score < 0 or score > 100:
+    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score) or score < 0 or score > 100:
         errors.append("pass100_score must be a number from 0 to 100")
 
     decision = report.get("promotion_decision")

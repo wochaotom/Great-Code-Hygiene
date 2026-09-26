@@ -18,6 +18,23 @@ from export_claude_package import copy_tree, export_claude_ai_skill, zip_dir
 
 
 class ExportDeterminismTests(unittest.TestCase):
+    def test_copy_rejects_source_symlink_before_replacing_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, destination = root / "source", root / "destination"
+            source.mkdir()
+            destination.mkdir()
+            (destination / "keep.txt").write_text("original", encoding="utf-8")
+            outside = root / "secret.txt"
+            outside.write_text("private", encoding="utf-8")
+            try:
+                (source / "leak.txt").symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            with self.assertRaisesRegex(ValueError, "unsafe export link"):
+                copy_tree(source, destination)
+            self.assertEqual((destination / "keep.txt").read_text(encoding="utf-8"), "original")
+
     def test_real_claude_export_is_repeatable_and_contains_internal_modules(self) -> None:
         source = SCRIPTS.parent
         with tempfile.TemporaryDirectory() as temp:

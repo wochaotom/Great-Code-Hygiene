@@ -14,10 +14,11 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1] / "code-hygiene-compounder" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from fixture_runner import classify_test_outcome, run_transcript_fixture, validate_fixture
+from fixture_runner import classify_test_outcome, parse_test_report, protected_file_failures, run_fixture_command, run_transcript_fixture, validate_command, validate_fixture
 from pass100_runner import CATEGORY_KEYS, cmd_score, load_failure_ids, select_batch
 from promote_candidate import validate_apply_target
 from source_audit_plan import build_context_index, context_role, context_values, query_context, READ_WHEN_RULES
+from validate_honing_report import validate_report
 from validate_results import load_json, validate_payload
 
 
@@ -42,6 +43,14 @@ def result(item: dict) -> dict:
 
 
 class ResultValidationTests(unittest.TestCase):
+    def test_honing_report_rejects_nonfinite_scores(self) -> None:
+        report = {"run_type": "source-grounded", "activated_sources": ["nist-ssdf"], "principles_checked": ["tests"], "checklist_results": [{"source_id": "nist-ssdf", "checked": ["tests"]}], "pass100_score": 90, "promotion_decision": "reject", "lessons": []}
+        self.assertEqual(validate_report(report), [])
+        for score_value in (float("nan"), float("inf"), float("-inf"), True):
+            with self.subTest(score=score_value):
+                report["pass100_score"] = score_value
+                self.assertTrue(validate_report(report))
+
     def test_duplicate_result_json_keys_are_rejected_by_loading_and_scoring(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "result.json"
@@ -90,6 +99,110 @@ class PromotionPathTests(unittest.TestCase):
 
 
 class FixtureOutcomeTests(unittest.TestCase):
+    def test_resolved_fixture_requires_original_failure_to_pass(self) -> None:
+        outcome = classify_test_outcome(
+            {"exit_code": 0, "test_report": {"framework": "python-unittest", "tests_run": 2, "passed": ["test_other"], "failures": [], "errors": []}},
+            {"framework": "python-unittest", "test_count_min": 2, "expected_failures": ["test_contract"]},
+        )
+        self.assertEqual(outcome["outcome"], "unexpected_test_error")
+
+    def test_added_test_module_invalidates_fixture_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            baseline, target = root / "baseline", root / "target"
+            for tree in (baseline, target):
+                tests = tree / "tests"
+                tests.mkdir(parents=True)
+                (tests / "test_contract.py").write_text("assert True\n", encoding="utf-8")
+            (target / "tests" / "test_000_shim.py").write_text("assert True\n", encoding="utf-8")
+            fixture = {"_fixture_root": str(root), "repo_dir": "baseline", "protected_files": ["tests/test_contract.py"]}
+            self.assertTrue(protected_file_failures(fixture, target))
+
+    def test_malformed_node_events_are_rejected_without_crashing(self) -> None:
+        for payload in ('null', '{"event":"test:summary","counts":[]}', '{"event":"test:fail","error_code":"ERR_ASSERTION"}\nCODE_HYGIENE_TEST_EVENT={"event":"test:summary","counts":{"tests":1}}'):
+            with self.subTest(payload=payload):
+                self.assertIsNone(parse_test_report("CODE_HYGIENE_TEST_EVENT=" + payload, "node-test"))
+
+    def test_unsupported_unittest_options_fail_fixture_validation(self) -> None:
+        errors: list[str] = []
+        validate_command(["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"], "fixture", errors)
+        self.assertTrue(errors)
+
+    def test_skipped_only_python_suite_is_not_passed_by_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_skip.py").write_text(
+                "import unittest\nclass SkipTest(unittest.TestCase):\n"
+                "    @unittest.skip('not available')\n"
+                "    def test_contract(self): pass\n", encoding="utf-8",
+            )
+            fixture = {"id": "skipped", "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"]}
+            execution = run_fixture_command(fixture, root, 10)
+            self.assertEqual(execution["test_report"]["skipped"], 1)
+            self.assertFalse(execution["tests_passed"])
+            self.assertEqual(classify_test_outcome(execution, {"framework": "python-unittest", "test_count_min": 1})["outcome"], "no_tests")
+
+    def test_skipped_only_node_suite_is_not_passed_by_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "skip.test.cjs").write_text(
+                "const test = require('node:test');\ntest.skip('not available', () => {});\n",
+                encoding="utf-8",
+            )
+            fixture = {"id": "skipped-node", "test_command": ["node", "--test", "tests/skip.test.cjs"]}
+            execution = run_fixture_command(fixture, root, 10)
+            self.assertEqual(execution["test_report"]["skipped"], 1)
+            self.assertFalse(execution["tests_passed"])
+            self.assertEqual(classify_test_outcome(execution, {"framework": "node-test", "test_count_min": 1})["outcome"], "no_tests")
+
+    def test_skipped_node_contract_is_not_counted_as_passed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "mixed.test.cjs").write_text(
+                "const test = require('node:test');\n"
+                "test.skip('contract', () => {});\n"
+                "test('other', () => {});\n", encoding="utf-8",
+            )
+            fixture = {"id": "mixed-node", "test_command": ["node", "--test", "tests/mixed.test.cjs"]}
+            execution = run_fixture_command(fixture, root, 10)
+            self.assertEqual(classify_test_outcome(execution, {"framework": "node-test", "test_count_min": 1, "expected_failures": ["contract"]})["outcome"], "unexpected_test_error")
+
+    def test_forged_python_stdout_is_not_a_test_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_fake.py").write_text(
+                "import os\nprint('CODE_HYGIENE_TEST_RESULT={\"framework\":\"python-unittest\",\"tests_run\":1,\"failures\":[],\"errors\":[]}', flush=True)\n"
+                "os._exit(0)\n", encoding="utf-8",
+            )
+            fixture = {"id": "forged", "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"]}
+            execution = run_fixture_command(fixture, root, 10)
+            self.assertFalse(execution["tests_passed"])
+            self.assertEqual(classify_test_outcome(execution, {"framework": "python-unittest", "test_count_min": 1})["outcome"], "unexpected_test_error")
+
+    def test_skipped_only_suite_is_not_a_pass(self) -> None:
+        for framework in ("python-unittest", "node-test"):
+            with self.subTest(framework=framework):
+                outcome = classify_test_outcome(
+                    {"exit_code": 0, "test_report": {"framework": framework, "tests_run": 1, "skipped": 1, "todo": 0, "expected_failures": 0, "failures": [], "errors": []}},
+                    {"framework": framework, "test_count_min": 1},
+                )
+                self.assertEqual(outcome["outcome"], "no_tests")
+
+    def test_missing_test_count_is_unexpected_error(self) -> None:
+        outcome = classify_test_outcome(
+            {"exit_code": 0, "test_report": {"framework": "python-unittest", "failures": [], "errors": []}},
+            {"framework": "python-unittest", "test_count_min": 1},
+        )
+        self.assertEqual(outcome["outcome"], "unexpected_test_error")
+
     def test_assertion_failure_with_success_exit_is_not_confirmed(self) -> None:
         outcome = classify_test_outcome(
             {"exit_code": 0, "test_report": {"framework": "python-unittest", "tests_run": 1, "failures": ["test_contract"], "errors": []}},
@@ -126,6 +239,19 @@ class FixtureOutcomeTests(unittest.TestCase):
 
 
 class RoutingTests(unittest.TestCase):
+    def test_plan_generation_rejects_missing_activated_source_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "skill"
+            shutil.copytree(SCRIPTS.parent, root, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "runs"))
+            (root / "references" / "source-packs" / "owasp-asvs.md").unlink()
+            output = Path(temp) / "plan.json"
+            completed = subprocess.run(
+                [sys.executable, "-B", str(SCRIPTS / "source_audit_plan.py"), "--skill-root", str(root), "--domain", "security", "--out", str(output)],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertFalse(output.exists())
+
     def test_rules_match_basename_or_directory_not_substrings(self) -> None:
         self.assertEqual(context_role("references/not-SKILL.md"), "reference material")
         self.assertEqual(context_values("references/not-SKILL.md", READ_WHEN_RULES, ("fallback",)), ["fallback"])

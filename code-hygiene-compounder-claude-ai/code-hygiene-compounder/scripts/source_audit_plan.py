@@ -338,7 +338,9 @@ def main() -> None:
         if item["activation"] not in activations:
             continue
         pack_path = packs_dir / f"{item['id']}.md"
-        pack = read_pack(pack_path) if pack_path.exists() else {"title": item["name"], "checks": [], "pass100_focus": []}
+        if not pack_path.is_file():
+            raise SystemExit(f"activated source pack is missing: {pack_path}")
+        pack = read_pack(pack_path)
         sources.append(
             {
                 "id": item["id"],

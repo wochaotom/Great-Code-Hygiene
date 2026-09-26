@@ -14,9 +14,9 @@ from statistics import mean
 
 from internal.policy import CRITICAL_CATEGORIES, PROMOTION_THRESHOLD
 from internal.json_integrity import loads_strict
-from fixture_runner import parse_test_report
+from fixture_runner import classify_test_outcome, executed_test_count, parse_test_report
 from pass100_runner import load_prompts
-from validate_results import validate_payload
+from validate_results import load_source_ids, validate_payload
 
 
 SKIP_NAMES = frozenset({"runs", "__pycache__", ".pytest_cache", ".mypy_cache", ".fixture-work", ".fixture-tmp", ".git"})
@@ -59,6 +59,16 @@ def tree_digest(root: Path) -> str:
             value.update(digest(file).encode("ascii"))
             value.update(b"\n")
     return value.hexdigest()
+
+
+def instruction_bytes(root: Path) -> int:
+    references = root / "references"
+    if not references.is_dir():
+        raise ValueError(f"missing instruction references: {references}")
+    files = [root / "SKILL.md", *references.rglob("*.md")]
+    if any(not path.is_file() or unsafe_link(path) for path in files):
+        raise ValueError(f"unsafe instruction file in: {root}")
+    return sum(path.stat().st_size for path in files)
 
 
 def read_json(path: Path) -> dict:
@@ -157,6 +167,25 @@ def relative_directory(manifest: Path, relative: object) -> Path:
     return path
 
 
+def verify_transcript_fixture(fixture: dict, result: dict, entry: dict, paths: dict[str, Path], output_id: str, accepted_expected: Path, baseline_failure: bool) -> bool:
+    actual_id, expected_id = entry.get("actual_artifact"), entry.get("expected_artifact")
+    if (actual_id != output_id or expected_id == actual_id or expected_id not in paths
+            or actual_id not in paths or digest(paths[expected_id]) != digest(accepted_expected)):
+        return False
+    actual_text = paths[actual_id].read_text(encoding="utf-8-sig").casefold()
+    expected_text = paths[expected_id].read_text(encoding="utf-8-sig").casefold()
+    markers = fixture["expected_markers"]
+    missing = [marker for marker in markers if marker.casefold() not in actual_text]
+    expected_missing = [marker for marker in markers if marker.casefold() not in expected_text]
+    declared = fixture["baseline_signature"]["expected_missing_markers"] if baseline_failure else []
+    return (
+        result.get("mode") == "transcript"
+        and result.get("missing_markers") == missing
+        and result.get("expected_missing_markers") == expected_missing == []
+        and sorted(missing) == sorted(declared)
+    )
+
+
 def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_root: Path) -> dict:
     gates: list[dict] = []
     decision = {"schema_version": 2, "bundle": str(manifest), "promotion_ready": False, "gates": gates}
@@ -190,8 +219,10 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         candidate_resolved = candidate.resolve(strict=True)
         separated = accepted != candidate_resolved and candidate_resolved not in accepted.parents and accepted not in candidate_resolved.parents
         actual_controls = control_hashes(accepted)
-        gate(gates, "accepted_controls", separated and bundle.get("controls") == actual_controls,
-             "controls match external verifier" if separated and bundle.get("controls") == actual_controls else "candidate controls differ from accepted external controls")
+        baseline_controls_match = control_hashes(current) == actual_controls
+        controls_ok = separated and baseline_controls_match and bundle.get("controls") == actual_controls
+        gate(gates, "accepted_controls", controls_ok,
+             "controls match the baseline and external verifier" if controls_ok else "external verifier is not anchored to baseline controls")
         candidate_controls = tree_digest(candidate / "scripts") == tree_digest(accepted / "scripts") and tree_digest(candidate / "fixtures") == actual_controls["fixtures"] and all(
             digest(candidate / "references" / name) == digest(accepted / "references" / name)
             for name in ("eval-prompts.md", "PASS-100.md", "source-weights.json")
@@ -204,7 +235,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
 
     try:
         plan = artifact_json(paths, bundle.get("plan_artifact"))
-        suite_ids = {item["id"] for item in load_prompts(accepted / "references" / "eval-prompts.md")}
+        suite_prompts = load_prompts(accepted / "references" / "eval-prompts.md")
+        suite_ids = {item["id"] for item in suite_prompts}
         targets = plan.get("target_ids")
         target_artifacts = plan.get("target_artifacts")
         trials = plan.get("trial_count")
@@ -237,12 +269,37 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     if not valid_plan:
         return decision
 
+    categories = plan.get("categories")
+    suite_categories = {item["category"] for item in suite_prompts}
+    selected_categories = set(categories) if isinstance(categories, list) and all(isinstance(item, str) for item in categories) else set()
+    expected_prompts = {item["id"] for item in suite_prompts if item["category"] in selected_categories}
+    selection_ok = (
+        isinstance(categories, list) and bool(categories) and len(categories) == len(selected_categories)
+        and selected_categories.issubset(suite_categories) and set(prompts) == expected_prompts
+    )
+    gate(gates, "focused_selection", selection_ok,
+         "complete predeclared categories selected" if selection_ok else "promotion prompts must cover whole declared categories")
+
+    try:
+        source_ids = load_source_ids(accepted / "references" / "source-weights.json")
+        if not source_ids:
+            raise ValueError("accepted source registry is unavailable")
+        gate(gates, "source_registry", True, "accepted source IDs loaded")
+    except (OSError, ValueError, SystemExit) as exc:
+        gate(gates, "source_registry", False, str(exc))
+        return decision
+
     target_hashes = {target: digest(paths[identity]) for target, identity in target_artifacts.items()}
     hard_ok = plan["mode"] != "hard" or len(targets) >= 3 and len(set(target_hashes.values())) == len(targets)
     gate(gates, "hard_target_count", hard_ok, "three distinct target snapshots" if plan["mode"] == "hard" else "focused mode")
     fixture_manifests: dict[str, dict] = {}
     try:
-        fixture_manifests = {item["id"]: item for fixture in (accepted / "fixtures").glob("*/fixture.json") if (item := read_json(fixture))["prompt_id"] in prompts}
+        fixture_manifests = {}
+        for fixture_path in (accepted / "fixtures").glob("*/fixture.json"):
+            item = read_json(fixture_path)
+            if item["prompt_id"] in prompts:
+                item["_accepted_fixture_root"] = str(fixture_path.parent)
+                fixture_manifests[item["id"]] = item
         matching_fixtures = set(fixture_manifests)
         fixture_ids = set(plan["applicable_fixture_ids"])
         fixture_match = fixture_ids == matching_fixtures
@@ -276,8 +333,13 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     expected_keys = {(target, trial, arm) for target in targets for trial in range(1, trials + 1) for arm in ("baseline", "candidate")}
     observed: dict[tuple[str, int, str], dict] = {}
     run_ids: set[str] = set()
+    output_ids: set[str] = set()
+    fixture_result_ids: set[str] = set()
     execution_ids: set[str] = set()
-    inspected_ids: set[str] = set(target_artifacts.values())
+    inspected_ids: set[str] = {bundle["plan_artifact"], *target_artifacts.values()}
+    if plan.get("source_backed") is True and isinstance(bundle.get("honing_artifact"), str):
+        inspected_ids.add(bundle["honing_artifact"])
+    operator_ids: set[str] = set()
     problems: list[str] = []
     for entry in run_entries:
         try:
@@ -292,6 +354,9 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             output_id = entry.get("output_artifact")
             if not isinstance(output_id, str) or output_id not in paths or paths[output_id].stat().st_size == 0:
                 raise ValueError("captured output is missing or empty")
+            if output_id in output_ids:
+                raise ValueError(f"captured output is reused across runs: {output_id}")
+            output_ids.add(output_id)
             for field, value in (("target_id", key[0]), ("trial", key[1]), ("arm", key[2])):
                 if result.get(field) != value or execution.get(field) != value:
                     raise ValueError(f"{field} identity mismatch")
@@ -303,7 +368,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             run_ids.add(run_id)
             if result.get("schema_version") != 2 or result.get("run_type") != "model-execution":
                 raise ValueError("legacy or non-model result is ineligible")
-            result_errors, _ = validate_payload(result, known_prompt_ids=suite_ids)
+            result_errors, _ = validate_payload(result, known_prompt_ids=suite_ids, source_ids=source_ids)
             if result_errors:
                 raise ValueError("invalid result: " + "; ".join(result_errors))
             if set(result["prompt_ids"]) != set(prompts):
@@ -317,6 +382,10 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 raise ValueError("result or execution skill fingerprint mismatch")
             if execution.get("fresh_context") is not True or execution.get("process_exit") != 0 or not isinstance(execution.get("argv"), list) or not execution["argv"]:
                 raise ValueError("fresh external execution record is incomplete")
+            operator_id = execution.get("operator_id")
+            if not isinstance(operator_id, str) or not operator_id.strip():
+                raise ValueError("execution operator identity is missing")
+            operator_ids.add(operator_id)
             if execution.get("output_artifact") != output_id or execution.get("output_sha256") != digest(paths[output_id]):
                 raise ValueError("execution output fingerprint mismatch")
             execution_start = parse_time(execution.get("started_at"))
@@ -337,32 +406,44 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 fixture = fixture_manifests.get(fixture_id)
                 fixture_result_id = fixture_entry.get("result_artifact")
                 fixture_result = artifact_json(paths, fixture_result_id)
+                if fixture_result_id in fixture_result_ids:
+                    raise ValueError(f"fixture result is reused across runs: {fixture_result_id}")
+                fixture_result_ids.add(fixture_result_id)
                 inspected_ids.add(fixture_result_id)
-                if not fixture or fixture_result.get("fixture_id") != fixture_id or fixture_result.get("outcome") != "pass" or fixture_result.get("resolved") is not True:
+                baseline_failure = key[2] == "baseline" and fixture and fixture.get("baseline_expected") == "fail"
+                expected_outcome = "expected_assertion_failure" if baseline_failure else "pass"
+                if (not fixture or fixture_result.get("fixture_id") != fixture_id
+                        or any(fixture_result.get(field) != value for field, value in (
+                            ("run_id", run_id), ("target_id", key[0]), ("trial", key[1]),
+                            ("arm", key[2]), ("skill_fingerprint", expected_skill)))
+                        or fixture_result.get("outcome") != expected_outcome
+                        or fixture_result.get("resolved") is not (not baseline_failure)
+                        or fixture_result.get("signature_matched") is not bool(baseline_failure)):
                     raise ValueError(f"fixture result missing or failed: {fixture_id}")
                 if fixture.get("mode", "repo") == "repo":
                     signature = fixture["baseline_signature"]
                     report = fixture_result.get("test_report")
                     command = fixture_result.get("command")
                     captured = fixture_result.get("stdout_tail")
-                    if (fixture_result.get("protected_files_ok") is not True or fixture_result.get("tests_passed") is not True
-                            or fixture_result.get("exit_code") != 0 or fixture_result.get("timed_out") is not False
+                    classification = classify_test_outcome(fixture_result, signature)
+                    if (fixture_result.get("protected_files_ok") is not True
+                            or fixture_result.get("tests_passed") is not (not baseline_failure)
+                            or fixture_result.get("timed_out") is not False
                             or fixture_result.get("framework") != signature["framework"]
                             or not isinstance(command, list) or command[1:] != fixture["test_command"][1:]
                             or not isinstance(captured, str) or parse_test_report(captured, signature["framework"]) != report
-                            or not isinstance(report, dict) or not isinstance(report.get("tests_run"), int)
-                            or report["tests_run"] < signature["test_count_min"] or report.get("failures") != [] or report.get("errors") != []):
+                            or not isinstance(report, dict) or executed_test_count(report) is None
+                            or executed_test_count(report) < signature["test_count_min"] or report.get("errors") != []
+                            or classification["outcome"] != expected_outcome
+                            or classification["signature_matched"] is not bool(baseline_failure)):
                         raise ValueError(f"fixture execution evidence incomplete: {fixture_id}")
                 else:
                     actual_id, expected_id = fixture_entry.get("actual_artifact"), fixture_entry.get("expected_artifact")
                     if actual_id not in paths or expected_id not in paths:
                         raise ValueError(f"transcript artifacts missing: {fixture_id}")
                     inspected_ids.update((actual_id, expected_id))
-                    actual_text = paths[actual_id].read_text(encoding="utf-8-sig").casefold()
-                    expected_text = paths[expected_id].read_text(encoding="utf-8-sig").casefold()
-                    if (fixture_result.get("mode") != "transcript" or fixture_result.get("missing_markers") != []
-                            or fixture_result.get("expected_missing_markers") != []
-                            or any(marker.casefold() not in actual_text or marker.casefold() not in expected_text for marker in fixture["expected_markers"])):
+                    accepted_expected = Path(fixture["_accepted_fixture_root"]) / "transcript.expected.md"
+                    if not verify_transcript_fixture(fixture, fixture_result, fixture_entry, paths, output_id, accepted_expected, baseline_failure):
                         raise ValueError(f"transcript verification incomplete: {fixture_id}")
             for artifact_key in ("result_artifact", "execution_artifact", "output_artifact", "verification_artifact"):
                 inspected_ids.add(entry[artifact_key])
@@ -382,19 +463,35 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         reviewer = artifact_json(paths, bundle.get("review_artifact"))
         reviewer_record = artifact_json(paths, bundle.get("reviewer_execution_artifact"))
         reviewer_output_id = reviewer_record.get("output_artifact")
+        reviewer_output = artifact_json(paths, reviewer_output_id)
+        raw_result = reviewer_output.get("result")
+        if isinstance(raw_result, str):
+            raw_result = loads_strict(raw_result)
         reviewed_ids = reviewer.get("inspected_artifact_ids")
+        inspected_hashes = {identity: digest(paths[identity]) for identity in inspected_ids}
         latest_run_end = max((parse_time(artifact_json(paths, entry["execution_artifact"]).get("ended_at")) for entry in run_entries if isinstance(entry, dict) and entry.get("execution_artifact") in paths), default=declared_at)
         reviewer_ok = (
             reviewer.get("verdict") == "approve" and reviewer.get("independent") is True
-            and isinstance(reviewer.get("reviewer_id"), str) and reviewer["reviewer_id"]
+            and isinstance(reviewer.get("reviewer_id"), str) and reviewer["reviewer_id"].strip()
+            and reviewer["reviewer_id"] not in operator_ids
             and isinstance(reviewed_ids, list) and all(isinstance(item, str) for item in reviewed_ids)
             and len(reviewed_ids) == len(set(reviewed_ids)) and set(reviewed_ids) == inspected_ids
+            and reviewer.get("inspected_artifact_hashes") == inspected_hashes
+            and reviewer.get("baseline_fingerprint") == current_hash
+            and reviewer.get("candidate_fingerprint") == candidate_hash
+            and reviewer.get("package_fingerprint") == candidate_hash
+            and reviewer.get("controls") == actual_controls
             and reviewer_record.get("fresh_context") is True
             and reviewer_record.get("process_exit") == 0
             and isinstance(reviewer_record.get("argv"), list) and bool(reviewer_record["argv"])
             and reviewer_record.get("run_id") == reviewer.get("reviewer_run_id")
+            and reviewer_record.get("reviewer_id") == reviewer.get("reviewer_id")
             and reviewer_record.get("run_id") not in run_ids
-            and isinstance(reviewer_output_id, str) and reviewer_output_id in paths
+            and reviewer_output_id != bundle.get("review_artifact") and reviewer_output_id in paths
+            and reviewer_output.get("type") == "result" and reviewer_output.get("is_error") is False
+            and reviewer_output.get("session_id") == reviewer_record.get("run_id")
+            and isinstance(reviewer_output.get("num_turns"), int) and reviewer_output["num_turns"] >= 1
+            and raw_result == reviewer
             and paths[reviewer_output_id].stat().st_size > 0
             and reviewer_record.get("output_sha256") == digest(paths[reviewer_output_id])
             and parse_time(reviewer_record.get("started_at")) >= latest_run_end
@@ -420,6 +517,13 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
 
             report = artifact_json(paths, bundle.get("honing_artifact"))
             report_errors = validate_report(report)
+            activated = report.get("activated_sources")
+            if not isinstance(activated, list) or any(not isinstance(source_id, str) or source_id not in source_ids for source_id in activated):
+                report_errors.append("honing report activates a source outside the accepted registry")
+            if report.get("baseline_fingerprint") != current_hash or report.get("candidate_fingerprint") != candidate_hash:
+                report_errors.append("honing report skill fingerprints do not match this candidate")
+            if report.get("promotion_decision") != "promote":
+                report_errors.append("honing report does not recommend promotion")
             gate(gates, "source_grounding", not report_errors, "; ".join(report_errors) if report_errors else "valid honing report")
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             gate(gates, "source_grounding", False, str(exc))
@@ -455,7 +559,13 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         if improvement["type"] == "score":
             improved = average_after is not None and average_before is not None and average_after > average_before
         else:
-            improved = average_after is not None and average_before is not None and average_after == average_before and (candidate / "SKILL.md").stat().st_size < (current / "SKILL.md").stat().st_size
+            try:
+                baseline_bytes = instruction_bytes(current)
+                candidate_bytes = instruction_bytes(candidate)
+                decision["instruction_bytes"] = {"baseline": baseline_bytes, "candidate": candidate_bytes}
+                improved = average_after is not None and average_before is not None and average_after == average_before and candidate_bytes < baseline_bytes
+            except (OSError, ValueError):
+                improved = False
         gate(gates, "predeclared_improvement", improved, "predeclared gain observed" if improved else "declared gain not observed")
         decision["baseline_average"] = average_before
         decision["candidate_average"] = average_after

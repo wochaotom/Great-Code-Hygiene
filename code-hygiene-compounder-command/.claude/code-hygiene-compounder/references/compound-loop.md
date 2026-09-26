@@ -61,13 +61,14 @@ Promote automatically only when all conditions hold:
 - Installed/runtime skill parity is verified for serious installed-skill or model-execution evidence, unless the isolated runtime version is explicitly recorded.
 - Average score does not regress.
 - Correctness, tests, security, and minimal diff categories do not regress on critical prompts.
-- Matching executable fixtures pass when they exist for the failed or changed prompt category.
+- Every prompt in each predeclared focused category is evaluated. Applicable executable fixtures reproduce their declared baseline failure signature and pass on the candidate with protected tests unchanged.
 - Transcript fixtures pass when the change affects evidence-reporting or agent-process transcripts.
 - Candidate change is tied to an observed failure, repeated real-use miss, or source-backed rule.
 - Candidate source-backed rules must reference `source-registry.md` or an admitted, weighted source.
 - Source-grounded promotions require a valid honing report checked by `scripts/validate_honing_report.py` and referenced in the versioned evidence bundle.
-- Only a v2 evidence bundle containing predeclared matched trials, hashed external execution records, verification artifacts, and independent review can authorize `promote_candidate.py --apply`. Legacy `--score` remains diagnostic-only.
+- Only a v2 evidence bundle containing predeclared matched trials, hashed external execution records, verification artifacts, and a separate raw fresh-reviewer output matching the review report can authorize `promote_candidate.py --apply`. Accepted controls must match the installed baseline and remain outside the candidate tree. Legacy `--score` remains diagnostic-only.
 - Instruction length stays concise; longer updates need measurable benefit.
+- Equal-score size promotions must reduce the combined bytes of `SKILL.md` and all reference Markdown, not just shift instructions between files.
 - Candidate does not add broad, vague rules such as "be more careful" without operational behavior.
 - Candidate removes, merges, or narrows existing guidance when possible.
 

@@ -318,6 +318,9 @@ remains readable for diagnosis but cannot authorize `--apply`. The bundle
 references SHA-256 checked artifacts: a predeclared plan, matched baseline and
 candidate result records, fresh-context external execution records and captured
 outputs, target snapshots, verification results, and an independent review that inspected them.
+The reviewer report and the fresh reviewer's raw output are distinct hashed
+artifacts; the report must match the captured output and name every inspected
+artifact hash. A hand-written approval record alone cannot satisfy this gate.
 Hashes establish artifact integrity, not that execution really happened;
 reviewers must inspect the actual capture. The verifier cannot authenticate an
 operator who fabricates every record, including reviewer output. Synthetic
@@ -326,12 +329,18 @@ Script-only and audit-backed scores
 cannot be mixed with model-execution scores for promotion.
 
 The accepted verifier, rubric, suite, fixtures, and policy must remain outside
-the candidate tree. Candidate edits to those controls require ordinary reviewed
-repository maintenance. A promotion also requires structural budgets, package
-parity, applicable fixture checks, no mean or critical-category regression on
-any evaluated prompt,
+the candidate tree and match the installed baseline's controls. Candidate edits
+to those controls require ordinary reviewed repository maintenance. A promotion
+must cover every prompt in each predeclared focused category, not a favorable
+subset. Its applicable executable fixtures must reproduce the declared baseline
+failure signature and pass on the candidate, with protected test files unchanged.
+A promotion also requires structural budgets, package parity, no mean or
+critical-category regression on any evaluated prompt,
 a focused average of at least 85, and a predeclared gain (or equal behavior with
-smaller active instructions). Each target ID binds to a nonempty snapshot
+smaller active instructions). For equal-score promotions, the conservative size
+check counts `SKILL.md` and all Markdown files under `references/`; simply
+moving text into a reference does not qualify. Each target ID binds to a
+nonempty snapshot
 artifact in the plan and execution record; hard mode needs three distinct
 snapshot hashes. The reviewer must inspect the snapshots as well as run records.
 Source-backed edits need a valid honing report in the bundle. Unavailable gates

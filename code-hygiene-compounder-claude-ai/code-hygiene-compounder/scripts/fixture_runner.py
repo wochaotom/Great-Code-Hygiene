@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -35,18 +36,39 @@ def parse_test_report(stdout: str, framework: str) -> dict | None:
             events = [json.loads(line[len(EVENT_PREFIX):]) for line in stdout.splitlines() if line.startswith(EVENT_PREFIX)]
         except json.JSONDecodeError:
             return None
+        if any(not isinstance(event, dict) for event in events):
+            return None
         summaries = [event for event in events if event.get("event") == "test:summary"]
         if len(summaries) != 1:
+            return None
+        counts = summaries[0].get("counts")
+        if not isinstance(counts, dict):
+            return None
+        test_events = [event for event in events if event.get("event") in {"test:pass", "test:fail"}]
+        if any(not isinstance(event.get("name"), str) or not event["name"] for event in test_events):
             return None
         failures = [event for event in events if event.get("event") == "test:fail" and event.get("error_code") == "ERR_ASSERTION"]
         errors = [event for event in events if event.get("event") == "test:fail" and event not in failures]
         return {
             "framework": framework,
-            "tests_run": summaries[0].get("counts", {}).get("tests"),
+            "tests_run": counts.get("tests"),
+            "skipped": counts.get("skipped", 0),
+            "todo": counts.get("todo", 0),
             "failures": sorted(event["name"] for event in failures),
             "errors": sorted(event["name"] for event in errors),
+            "passed": sorted(event["name"] for event in test_events if event.get("event") == "test:pass" and not event.get("skip") and not event.get("todo")),
         }
     return None
+
+
+def executed_test_count(report: dict) -> int | None:
+    count = report.get("tests_run")
+    exclusions = [report.get(key, 0) for key in ("skipped", "todo", "expected_failures")]
+    if (not isinstance(count, int) or isinstance(count, bool) or count < 0
+            or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in exclusions)):
+        return None
+    executed = count - sum(exclusions)
+    return executed if executed >= 0 else None
 
 
 def classify_test_outcome(command_result: dict, signature: dict) -> dict:
@@ -59,8 +81,10 @@ def classify_test_outcome(command_result: dict, signature: dict) -> dict:
         return {"outcome": "unexpected_test_error", "signature_matched": False}
     if signature.get("framework") and report.get("framework") != signature["framework"]:
         return {"outcome": "unexpected_test_error", "signature_matched": False}
-    count = report.get("tests_run")
-    if not isinstance(count, int) or isinstance(count, bool) or count == 0:
+    count = executed_test_count(report)
+    if count is None:
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if count == 0:
         return {"outcome": "no_tests", "signature_matched": False}
     failures = report.get("failures")
     errors = report.get("errors")
@@ -72,6 +96,10 @@ def classify_test_outcome(command_result: dict, signature: dict) -> dict:
         expected = signature.get("expected_failures")
         matched = isinstance(expected, list) and sorted(expected) == sorted(failures) and isinstance(command_result.get("exit_code"), int) and command_result["exit_code"] != 0
         return {"outcome": "expected_assertion_failure" if matched else "unexpected_test_error", "signature_matched": matched}
+    expected = signature.get("expected_failures", [])
+    passed = report.get("passed")
+    if expected and (not isinstance(passed, list) or not set(expected).issubset(passed)):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
     return {"outcome": "pass" if command_result.get("exit_code") == 0 else "unexpected_test_error", "signature_matched": False}
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -124,9 +152,17 @@ def validate_command(value: object, label: str, errors: list[str]) -> None:
     if not isinstance(value, list) or not value:
         errors.append(f"{label}.test_command must be a non-empty array")
         return
+    invalid_parts = False
     for index, part in enumerate(value):
         if not isinstance(part, str) or not part.strip():
             errors.append(f"{label}.test_command[{index}] must be a non-empty string")
+            invalid_parts = True
+    if invalid_parts:
+        return
+    python_discovery = len(value) == 6 and value[:5] == ["{python}", "-m", "unittest", "discover", "-s"]
+    node_test = len(value) == 3 and value[:2] == ["node", "--test"]
+    if not (python_discovery or node_test):
+        errors.append(f"{label}.test_command must use supported structured unittest discovery or node --test form")
 
 def fixture_mode(item: dict) -> str:
     return item["mode"] if "mode" in item and isinstance(item["mode"], str) else ("repo" if "mode" not in item else "invalid")
@@ -255,10 +291,10 @@ def command_for_current_python(command: list[str]) -> list[str]:
     return [sys.executable if part == "{python}" else part for part in command]
 
 
-def structured_command(command: list[str]) -> tuple[list[str], str]:
+def structured_command(command: list[str], report_path: Path) -> tuple[list[str], str]:
     internal = Path(__file__).resolve().parent / "internal"
-    if len(command) >= 6 and command[1:4] == ["-m", "unittest", "discover"] and command[4] == "-s":
-        return [command[0], str(internal / "unittest_reporter.py"), command[5]], "python-unittest"
+    if len(command) == 6 and command[1:4] == ["-m", "unittest", "discover"] and command[4] == "-s":
+        return [command[0], str(internal / "unittest_reporter.py"), command[5], str(report_path)], "python-unittest"
     if len(command) >= 3 and command[1] == "--test":
         return [command[0], f"--test-reporter={(internal / 'node_reporter.mjs').as_uri()}", *command[1:]], "node-test"
     raise SystemExit("fixture test command has no supported structured reporter")
@@ -269,66 +305,87 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
     if not isinstance(command, list):
         raise SystemExit(f"{item.get('id')}: invalid test_command")
     command = command_for_current_python(command)
-    effective_command, framework = structured_command(command)
-    env = os.environ.copy()
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            effective_command,
-            cwd=target,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            env=env,
-        )
-        duration_ms = int((time.monotonic() - started) * 1000)
-        report = parse_test_report(completed.stdout, framework)
-        return {
-            "command": command,
-            "effective_command": effective_command,
-            "framework": framework,
-            "test_report": report,
-            "exit_code": completed.returncode,
-            "duration_ms": duration_ms,
-            "tests_passed": completed.returncode == 0 and isinstance(report, dict) and report.get("tests_run", 0) > 0 and not report.get("failures") and not report.get("errors"),
-            "stdout_tail": tail(completed.stdout),
-            "stderr_tail": tail(completed.stderr),
-            "timed_out": False,
-        }
-    except subprocess.TimeoutExpired as exc:
-        duration_ms = int((time.monotonic() - started) * 1000)
-        return {
-            "command": command,
-            "effective_command": effective_command,
-            "framework": framework,
-            "test_report": None,
-            "exit_code": None,
-            "duration_ms": duration_ms,
-            "tests_passed": False,
-            "stdout_tail": tail((exc.stdout or b"").decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")),
-            "stderr_tail": tail((exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")),
-            "timed_out": True,
-        }
-    except OSError as exc:
-        return {
-            "command": command,
-            "effective_command": effective_command,
-            "framework": framework,
-            "test_report": None,
-            "exit_code": None,
-            "duration_ms": int((time.monotonic() - started) * 1000),
-            "tests_passed": False,
-            "stdout_tail": "",
-            "stderr_tail": str(exc),
-            "timed_out": False,
-            "infrastructure_error": True,
-        }
+    with tempfile.TemporaryDirectory(prefix="hygiene-report-") as report_dir:
+        report_path = Path(report_dir) / "result.json"
+        effective_command, framework = structured_command(command, report_path)
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        started = time.monotonic()
+        try:
+            completed = subprocess.run(
+                effective_command,
+                cwd=target,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                env=env,
+            )
+            duration_ms = int((time.monotonic() - started) * 1000)
+            report = parse_test_report(completed.stdout, framework)
+            if framework == "python-unittest":
+                try:
+                    sidecar = json.loads(report_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    sidecar = None
+                if report != sidecar:
+                    report = None
+            return {
+                "command": command,
+                "effective_command": effective_command,
+                "framework": framework,
+                "test_report": report,
+                "exit_code": completed.returncode,
+                "duration_ms": duration_ms,
+                "tests_passed": completed.returncode == 0 and isinstance(report, dict) and (executed_test_count(report) or 0) > 0 and not report.get("failures") and not report.get("errors"),
+                "stdout_tail": tail(completed.stdout),
+                "stderr_tail": tail(completed.stderr),
+                "timed_out": False,
+            }
+        except subprocess.TimeoutExpired as exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            return {
+                "command": command,
+                "effective_command": effective_command,
+                "framework": framework,
+                "test_report": None,
+                "exit_code": None,
+                "duration_ms": duration_ms,
+                "tests_passed": False,
+                "stdout_tail": tail((exc.stdout or b"").decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")),
+                "stderr_tail": tail((exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")),
+                "timed_out": True,
+            }
+        except OSError as exc:
+            return {
+                "command": command,
+                "effective_command": effective_command,
+                "framework": framework,
+                "test_report": None,
+                "exit_code": None,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "tests_passed": False,
+                "stdout_tail": "",
+                "stderr_tail": str(exc),
+                "timed_out": False,
+                "infrastructure_error": True,
+            }
 
 
 def protected_file_failures(item: dict, target: Path) -> list[dict]:
     root = Path(str(item["_fixture_root"])) / str(item["repo_dir"])
     failures: list[dict] = []
+    def test_paths(tree: Path) -> set[str]:
+        return {
+            path.relative_to(tree).as_posix()
+            for path in (tree / "tests").rglob("*")
+            if path.is_file() or path.is_symlink()
+        }
+
+    baseline_tests, candidate_tests = test_paths(root), test_paths(target)
+    for relative in sorted(candidate_tests - baseline_tests):
+        failures.append({"path": relative, "reason": "added test file"})
+    for relative in sorted(baseline_tests - candidate_tests):
+        failures.append({"path": relative, "reason": "missing test file"})
     for relative in item.get("protected_files", []) or []:
         baseline = root / relative
         candidate = target / relative

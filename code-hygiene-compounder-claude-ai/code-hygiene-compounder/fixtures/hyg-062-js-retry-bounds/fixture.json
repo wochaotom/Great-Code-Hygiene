@@ -5,7 +5,7 @@
   "id": "hyg-062-js-retry-bounds",
   "pass_stat": "node_test_exit_zero",
   "prompt_id": "HYG-062",
-  "protected_files": [],
+  "protected_files": ["tests/retry.test.js"],
   "repo_dir": "repo",
   "test_command": ["node", "--test", "tests/retry.test.js"],
   "title": "Bound JavaScript retry attempts while preserving transient success"

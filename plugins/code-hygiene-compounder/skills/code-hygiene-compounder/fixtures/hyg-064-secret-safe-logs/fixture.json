@@ -5,7 +5,7 @@
   "id": "hyg-064-secret-safe-logs",
   "pass_stat": "unittest_exit_zero",
   "prompt_id": "HYG-064",
-  "protected_files": [],
+  "protected_files": ["tests/test_logging_helpers.py"],
   "repo_dir": "repo",
   "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
   "title": "Add structured failure logs without leaking secrets"

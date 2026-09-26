@@ -58,6 +58,14 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('node-version: "24"', workflow)
         self.assertIn("python -B -m unittest discover -s tests -v", workflow)
 
+    def test_release_requires_main_commit_and_three_platform_gates(self) -> None:
+        hygiene = (REPO_ROOT / ".github" / "workflows" / "hygiene.yml").read_text(encoding="utf-8")
+        release = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_call:", hygiene)
+        self.assertIn("uses: ./.github/workflows/hygiene.yml", release)
+        self.assertIn("needs: verify", release)
+        self.assertIn("git merge-base --is-ancestor HEAD origin/main", release)
+
     def test_public_plugin_manifests_share_semver(self) -> None:
         claude = read_json(
             REPO_ROOT / "code-hygiene-compounder" / ".claude-plugin" / "plugin.json"

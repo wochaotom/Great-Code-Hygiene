@@ -10,6 +10,8 @@ export default async function* report(source) {
         file: event.data.file,
         nesting: event.data.nesting,
         test_type: event.data.details?.type ?? event.data.type,
+        skip: event.data.skip ?? event.data.details?.skip,
+        todo: event.data.todo ?? event.data.details?.todo,
         error_name: error?.name,
         error_code: error?.code,
       }) + '\n';

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 from internal.package_meta import EXCLUDED_NAMES
 from internal.package_meta import SKILL_NAME
 from internal.package_meta import PACKAGE_DIRS
+from internal.evidence import unsafe_link
 
 CLAUDE_SKILL_DESCRIPTION = (
     "Improve, review, refactor, harden, test, and evaluate code hygiene with "
@@ -101,13 +103,30 @@ Skip any step = not verified. Do not treat prior runs, agent reports, generated 
 """
 
 
+def reject_export_links(root: Path) -> None:
+    if unsafe_link(root) or not root.is_dir():
+        raise ValueError(f"unsafe export link or missing directory: {root}")
+
+    def fail(error: OSError) -> None:
+        raise error
+
+    for current, dirs, files in os.walk(root, onerror=fail):
+        for name in dirs + files:
+            path = Path(current) / name
+            if unsafe_link(path):
+                raise ValueError(f"unsafe export link: {path}")
+
+
 def copy_tree(src: Path, dest: Path, extra_excludes: tuple[str, ...] = ()) -> None:
+    reject_export_links(src)
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*EXCLUDED_NAMES, *extra_excludes))
+    shutil.copytree(src, dest, symlinks=True, ignore=shutil.ignore_patterns(*EXCLUDED_NAMES, *extra_excludes))
+    reject_export_links(dest)
 
 
 def zip_dir(src: Path, zip_path: Path, prefix: str = "") -> None:
+    reject_export_links(src)
     if zip_path.exists():
         zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -125,6 +144,7 @@ def zip_dir(src: Path, zip_path: Path, prefix: str = "") -> None:
 
 
 def read_skill_text(skill_root: Path) -> str:
+    reject_export_links(skill_root)
     text = (skill_root / "SKILL.md").read_text(encoding="utf-8-sig")
     if not text.startswith("---\n"):
         raise SystemExit("SKILL.md missing YAML frontmatter")
@@ -164,6 +184,7 @@ def remove_top_heading(text: str) -> str:
 
 
 def build_portable_prompt(skill_root: Path) -> str:
+    reject_export_links(skill_root)
     sections = [
         PORTABLE_PROMPT_INTRO.strip(),
         "## Hygiene Quick Entry\n\n" + remove_top_heading(read_reference(skill_root, "references/HYGIENE_QUICK.md")),
@@ -273,6 +294,7 @@ def sync_repo(repo_root: Path) -> None:
     command = repo_root / PACKAGE_DIRS["claude_command_package"]
     if not source.is_dir() or not (repo_root / ".claude-plugin" / "marketplace.json").is_file() or not (repo_root / "plugins" / SKILL_NAME / ".codex-plugin" / "plugin.json").is_file():
         raise SystemExit("repository or marketplace paths are incomplete")
+    reject_export_links(source)
     copy_tree(source, plugin, extra_excludes=(".claude-plugin",))
     claude_ai.mkdir(parents=True, exist_ok=True)
     (claude_ai / "SKILL.md").write_text(read_skill_text(source), encoding="utf-8")
@@ -306,6 +328,7 @@ def main() -> None:
         return
     if not args.skill_root or not args.out_dir:
         parser.error("--skill-root and --out-dir are required for exports")
+    reject_export_links(args.skill_root)
 
     if args.format == "portable-prompt":
         export_portable_prompt(args.skill_root, args.out_dir)

@@ -52,14 +52,14 @@
         "promotion",
         "training"
       ],
-      "lines": 97,
+      "lines": 98,
       "path": "references/compound-loop.md",
       "read_when": [
         "changing training, promotion, or compounding behavior"
       ],
       "role": "training and promotion protocol",
-      "sha256": "c2d7fdd3c90b07256bde21c642a48feb43520da8d5aa3bb943e3f1156ff15a55",
-      "words": 951
+      "sha256": "2edac03b77dc4cfe956d1bef7ec173b3440bd3af355303ff7c71f83add8982f6",
+      "words": 1005
     },
     {
       "domains": [

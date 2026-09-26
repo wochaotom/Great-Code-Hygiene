@@ -31,7 +31,10 @@ def remove_tree(path: Path, parent: Path, prefix: str) -> None:
 
 def write_journal(path: Path, payload: dict) -> None:
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True))
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temporary, path)
 
 
@@ -51,21 +54,34 @@ def check_runtime_data(path: Path) -> None:
         raise ValueError(f"unsupported excluded runtime data: {path}")
 
 
+def runtime_directories(root: Path) -> list[Path]:
+    found: list[Path] = []
+
+    def fail(error: OSError) -> None:
+        raise error
+
+    for current, dirs, _ in os.walk(root, onerror=fail):
+        for name in list(dirs):
+            if name in SKIP_NAMES:
+                found.append(Path(current) / name)
+                dirs.remove(name)
+    return found
+
+
 def move_runtime_data(source: Path, destination_root: Path, after_move: Callable[[], None] | None = None) -> None:
-    for child in source.iterdir():
-        if child.name not in SKIP_NAMES:
-            continue
+    for child in runtime_directories(source):
         check_runtime_data(child)
-        destination = destination_root / child.name
+        destination = destination_root / child.relative_to(source)
         if destination.exists() or unsafe_link(destination):
-            raise ValueError(f"excluded runtime data exists in both trees: {child.name}")
+            raise ValueError(f"excluded runtime data exists in both trees: {child.relative_to(source)}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(child, destination)
         if after_move:
             after_move()
 
 
 def ensure_no_runtime_data(path: Path) -> None:
-    if path.exists() and any(child.name in SKIP_NAMES for child in path.iterdir()):
+    if path.exists() and runtime_directories(path):
         raise ValueError(f"runtime data remains in backup: {path}")
 
 
@@ -92,7 +108,9 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
     stage = scoped(parent / f"{prefix}stage-{token}", parent, prefix)
     backup = scoped(parent / f"{prefix}backup-{token}", parent, prefix)
     try:
-        shutil.copytree(candidate, stage, ignore=shutil.ignore_patterns(*SKIP_NAMES))
+        shutil.copytree(candidate, stage, ignore=lambda directory, names: {
+            name for name in names if name in SKIP_NAMES and (Path(directory) / name).is_dir()
+        })
         if tree_digest(stage) != expected_candidate_fingerprint:
             raise ValueError("staged candidate fingerprint mismatch")
         state = {
