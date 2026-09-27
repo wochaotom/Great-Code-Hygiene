@@ -26,6 +26,52 @@ def read_json(path: Path) -> dict:
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_marketplace_symlink_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            marketplace = clean / ".claude-plugin" / "marketplace.json"
+            outside = Path(temp) / "marketplace.json"
+            outside.write_bytes(marketplace.read_bytes())
+            marketplace.unlink()
+            try:
+                marketplace.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("unsafe link" in error for error in report["errors"]), report["errors"])
+
+    def test_marketplaces_reject_extra_plugin_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            for relative in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"):
+                path = clean / relative
+                payload = read_json(path)
+                payload["plugins"].append({"name": "unreviewed", "source": "./other"})
+                path.write_text(json.dumps(payload), encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("marketplace must contain exactly one" in error for error in report["errors"]), report["errors"])
+
+    def test_package_parity_rejects_extra_distribution_wrapper_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            extras = (
+                clean / "code-hygiene-compounder-command" / ".claude" / "settings.json",
+                clean / "code-hygiene-compounder-claude-ai" / "extra.md",
+                clean / "plugins" / "code-hygiene-compounder" / "hooks" / "hooks.json",
+            )
+            for path in extras:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("unreviewed", encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            for name in ("settings.json", "extra.md", "hooks"):
+                self.assertTrue(any(name in error for error in report["errors"]), report["errors"])
+
     def test_clean_edition_symlink_is_not_accepted_as_package_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             clean = Path(temp) / "repo"

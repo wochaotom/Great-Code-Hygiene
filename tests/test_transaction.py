@@ -27,6 +27,98 @@ def approved_apply(candidate: Path, current: Path, after_phase=None) -> None:
 
 
 class TransactionTests(unittest.TestCase):
+    def test_staging_is_journaled_before_copy_and_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupted_copy(_source, stage, **_kwargs) -> None:
+                self.assertTrue(journal_path(current).is_file())
+                self.assertEqual(json.loads(journal_path(current).read_text(encoding="utf-8"))["phase"], "staging")
+                stage.mkdir()
+                (stage / "partial.md").write_text("partial", encoding="utf-8")
+                raise SystemExit("interrupted copy")
+
+            with patch("internal.transaction.shutil.copytree", side_effect=interrupted_copy):
+                with self.assertRaisesRegex(SystemExit, "interrupted copy"):
+                    approved_apply(candidate, current)
+            self.assertTrue(journal_path(current).is_file())
+            report = {}
+            recover_transaction(current, report=report)
+            self.assertEqual(report["action"], "cleared_staging")
+            self.assertFalse(list(root.glob(".current.promotion-stage-*")))
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+
+    def test_journal_keeps_approved_evidence_hash_for_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupt(phase: str) -> None:
+                if phase == "prepared":
+                    raise RuntimeError("interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                apply_transaction(candidate, current, tree_digest(current), tree_digest(candidate),
+                                  after_phase=interrupt, evidence_bundle_sha256="a" * 64)
+            state = json.loads(journal_path(current).read_text(encoding="utf-8"))
+            self.assertEqual(state["evidence_bundle_sha256"], "a" * 64)
+
+    def test_case_variant_runtime_folder_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+            history = current / "Runs" / "history.jsonl"
+            history.parent.mkdir()
+            history.write_text("keep", encoding="utf-8")
+            retained = apply_transaction(candidate, current, tree_digest(current), tree_digest(candidate))
+            self.assertEqual((current / "Runs" / "history.jsonl").read_text(encoding="utf-8"), "keep")
+            self.assertFalse((retained / "Runs").exists())
+
+    def test_failed_first_journal_serialization_leaves_no_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+            with patch("internal.transaction.json.dumps", side_effect=ValueError("serializing")):
+                with self.assertRaisesRegex(ValueError, "serializing"):
+                    approved_apply(candidate, current)
+            self.assertFalse(journal_path(current).exists())
+            self.assertFalse(list(root.glob(".current.promotion-stage-*")))
+
+    def test_journal_update_cannot_follow_predictable_temp_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+            victim = root / "victim.txt"
+            victim.write_text("keep", encoding="utf-8")
+            predictable = journal_path(current).with_name(journal_path(current).name + ".tmp")
+            try:
+                predictable.symlink_to(victim)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            approved_apply(candidate, current)
+            self.assertEqual(victim.read_text(encoding="utf-8"), "keep")
+
     @unittest.skipUnless(os.name == "nt", "case-insensitive recovery is Windows-specific")
     def test_recovery_accepts_case_variant_of_target_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -61,7 +153,7 @@ class TransactionTests(unittest.TestCase):
 
             def race(path: Path, payload: dict, *args, **kwargs) -> None:
                 nonlocal interleaved
-                if payload["phase"] == "prepared" and not interleaved:
+                if payload["phase"] == "staging" and not interleaved:
                     interleaved = True
 
                     def interrupt(phase: str) -> None:
@@ -105,6 +197,33 @@ class TransactionTests(unittest.TestCase):
             self.assertEqual(record["installed_fingerprint"], tree_digest(current))
             self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
 
+    def test_recovery_reports_rollback_when_swap_precedes_phase_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate, log = root / "current", root / "candidate", root / "recovery.jsonl"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+            original = write_journal
+
+            def interrupt(path: Path, payload: dict, **kwargs) -> None:
+                if payload["phase"] == "backed_up":
+                    raise RuntimeError("before phase update")
+                original(path, payload, **kwargs)
+
+            with patch("internal.transaction.write_journal", side_effect=interrupt):
+                with self.assertRaisesRegex(RuntimeError, "before phase update"):
+                    approved_apply(candidate, current)
+            state = json.loads(journal_path(current).read_text(encoding="utf-8"))
+            self.assertEqual(state["phase"], "prepared")
+            completed = subprocess.run([sys.executable, "-B", str(SCRIPTS / "promote_candidate.py"),
+                                        "--current", str(current), "--recover", "--log", str(log)], capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            record = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(record["action"], "rolled_back")
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+
     def test_failed_recovery_is_logged_without_touching_journal(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -139,16 +258,42 @@ class TransactionTests(unittest.TestCase):
             (current / "SKILL.md").write_text("old", encoding="utf-8")
             (candidate / "SKILL.md").write_text("---\nname: candidate\ndescription: test\n---\nnew\n", encoding="utf-8")
             decision = {"promotion_ready": True, "baseline_fingerprint": tree_digest(current),
-                        "candidate_fingerprint": tree_digest(candidate), "gates": []}
+                        "candidate_fingerprint": tree_digest(candidate), "evidence_bundle_sha256": "a" * 64, "gates": []}
             argv = ["promote_candidate.py", "--current", str(current), "--candidate", str(candidate),
                     "--evidence-bundle", str(root / "bundle.json"), "--apply", "--log", str(log)]
             with patch.object(sys, "argv", argv), patch("promote_candidate.evaluate_bundle", return_value=decision), patch("promote_candidate.apply_transaction", side_effect=ValueError("injected stage failure")):
                 with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()):
                     promote_main()
-            record = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+            record = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
             self.assertFalse(record["applied"])
             self.assertIn("injected stage failure", record["apply_error"])
             self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+
+    def test_started_record_precedes_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate, log = root / "current", root / "candidate", root / "apply.jsonl"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("---\nname: candidate\ndescription: test\n---\nnew\n", encoding="utf-8")
+            decision = {"promotion_ready": True, "baseline_fingerprint": tree_digest(current),
+                        "candidate_fingerprint": tree_digest(candidate), "evidence_bundle_sha256": "a" * 64, "gates": []}
+            argv = ["promote_candidate.py", "--current", str(current), "--candidate", str(candidate),
+                    "--evidence-bundle", str(root / "bundle.json"), "--apply", "--log", str(log)]
+
+            def assert_started(*_args):
+                records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertEqual(records[0]["event"], "apply_started")
+                self.assertEqual(records[0]["candidate_fingerprint"], decision["candidate_fingerprint"])
+                raise KeyboardInterrupt()
+
+            with patch.object(sys, "argv", argv), patch("promote_candidate.evaluate_bundle", return_value=decision), patch("promote_candidate.apply_transaction", side_effect=assert_started):
+                with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()):
+                    promote_main()
+            records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(records[-1]["event"], "apply_failed")
 
     def test_recovery_accepts_same_aliased_parent_used_for_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

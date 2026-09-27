@@ -12,8 +12,8 @@
         "starting broad training or export work"
       ],
       "role": "active skill entrypoint and routing workflow",
-      "sha256": "9f38dde56c08ce2eb0cf475cb239a91801e6284df970807b763ea0215a20b766",
-      "words": 1339
+      "sha256": "01564ae96332674f47a8eb9a39a283bbe607f8dabd90670a2376ee3b1046c59c",
+      "words": 1342
     },
     {
       "domains": [
@@ -52,14 +52,14 @@
         "promotion",
         "training"
       ],
-      "lines": 98,
+      "lines": 99,
       "path": "references/compound-loop.md",
       "read_when": [
         "changing training, promotion, or compounding behavior"
       ],
       "role": "training and promotion protocol",
-      "sha256": "0db1a67a303f97a702d9082348f315350ac2b5de7d42730bd8ee8c35f3887549",
-      "words": 1040
+      "sha256": "3cd07cddea6d32eb7bbe9e3a5395c4c7139f6bc37768fd214353bcee0254f3c2",
+      "words": 1084
     },
     {
       "domains": [

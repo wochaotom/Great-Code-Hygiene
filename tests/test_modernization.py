@@ -45,6 +45,14 @@ def result(item: dict) -> dict:
 
 
 class ResultValidationTests(unittest.TestCase):
+    def test_v2_scores_reject_subpoint_precision(self) -> None:
+        categories = dict(CATEGORY_KEYS)
+        categories["maintainability"] = 5.0000000001
+        item = {"prompt_id": "HYG-001", "categories": categories, "total": 90.0000000001,
+                "deductions": ["baseline gap"], "lessons": [], "rubric_flags": {key: False for key in RUBRIC_CAPS}}
+        _, _, checked = validate_score_item(item, 0, {"HYG-001"}, None, None, schema_version=2)
+        self.assertTrue(any("half-point" in error for error in checked.get("_errors", [])))
+
     def test_versioned_total_cannot_exceed_category_sum_by_score_slack(self) -> None:
         categories = dict(CATEGORY_KEYS)
         categories["maintainability"] = 5

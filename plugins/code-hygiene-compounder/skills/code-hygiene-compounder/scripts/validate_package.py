@@ -14,6 +14,7 @@ sys.dont_write_bytecode = True
 from internal.package_meta import PACKAGE_DIRS
 from internal.package_meta import FUNCTION_ONLY_DIR, SKELETON_DIR
 from internal.package_meta import PLUGIN_VERSION
+from internal.evidence import unsafe_link
 from export_claude_package import COMMAND_TEXT
 from export_claude_package import EXCLUDED_NAMES
 from export_claude_package import build_portable_prompt
@@ -224,7 +225,7 @@ def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None
     owner = marketplace.get('owner')
     expect(errors, marketplace.get('name') != MARKETPLACE_NAME, f'marketplace name must be {MARKETPLACE_NAME}')
     expect(errors, not isinstance(owner, dict) or not owner.get('name'), 'marketplace owner.name is required')
-    expect(errors, not isinstance(plugins, list) or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
+    expect(errors, not isinstance(plugins, list) or len(plugins) != 1 or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
     if matching:
         expect(errors, matching[0].get('source') != PLUGIN_SOURCE, f'{PLUGIN_NAME} source must be {PLUGIN_SOURCE}')
     expect(errors, any((isinstance(item, dict) and item.get('version') != PLUGIN_VERSION for item in matching)), f'marketplace plugin version must be {PLUGIN_VERSION}')
@@ -249,7 +250,7 @@ def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
     errors: list[str] = []
     expect(errors, marketplace.get('name') != MARKETPLACE_NAME, f'marketplace name must be {MARKETPLACE_NAME}')
     expect(errors, not isinstance(marketplace.get('interface'), dict) or not marketplace['interface'].get('displayName'), 'marketplace interface.displayName is required')
-    expect(errors, not isinstance(plugins, list) or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
+    expect(errors, not isinstance(plugins, list) or len(plugins) != 1 or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
     if matching:
         entry = matching[0]
         for key, value in {'source': {'source': 'local', 'path': CODEX_PLUGIN_SOURCE}, 'policy': {'installation': 'AVAILABLE', 'authentication': 'ON_INSTALL'}, 'category': 'Coding'}.items():
@@ -400,8 +401,17 @@ def check_edition_root(root: Path, expected: set[str], label: str, reporter: Rep
 
 
 def check_edition_links(repo_root: Path, reporter: Reporter) -> bool:
+    for path in iter_visible_files(repo_root) + iter_visible_dirs(repo_root):
+        if unsafe_link(path):
+            reporter.fail_check('package links', f'unsafe link: {as_repo_path(path, repo_root)}')
+            return False
     edition_paths = dict(PACKAGE_DIRS)
     edition_paths.update(clean=FUNCTION_ONLY_DIR, skeleton=SKELETON_DIR)
+    edition_paths.update(
+        claude_ai_wrapper=Path('code-hygiene-compounder-claude-ai'),
+        claude_command_wrapper=Path('code-hygiene-compounder-command'),
+        codex_plugin_wrapper=Path('plugins/code-hygiene-compounder'),
+    )
     for label, relative in edition_paths.items():
         root = repo_root / relative
         try:
@@ -417,6 +427,17 @@ def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
     codex_plugin_root = repo_root / PACKAGE_DIRS['codex_plugin_skill']
     claude_ai_root = repo_root / PACKAGE_DIRS['claude_ai_skill']
     command_root = repo_root / PACKAGE_DIRS['claude_command_package']
+    wrapper_layouts = {
+        'Claude AI wrapper': ('code-hygiene-compounder-claude-ai', {'code-hygiene-compounder'}),
+        'Claude command wrapper': ('code-hygiene-compounder-command', {'INSTALL.txt', '.claude'}),
+        'Claude command config': ('code-hygiene-compounder-command/.claude', {'commands', 'code-hygiene-compounder'}),
+        'Claude commands': ('code-hygiene-compounder-command/.claude/commands', {'code-hygiene.md'}),
+        'Codex plugin wrapper': ('plugins/code-hygiene-compounder', {'.codex-plugin', 'skills'}),
+        'Codex plugin metadata': ('plugins/code-hygiene-compounder/.codex-plugin', {'plugin.json'}),
+        'Codex plugin skills': ('plugins/code-hygiene-compounder/skills', {'code-hygiene-compounder'}),
+    }
+    for label, (relative, entries) in wrapper_layouts.items():
+        check_edition_root(repo_root / relative, entries, label, reporter)
     check_edition_root(claude_ai_root, {'SKILL.md', 'references', 'scripts', 'fixtures'}, 'Claude AI root layout', reporter)
     check_edition_root(command_root, {'references', 'scripts', 'fixtures'}, 'Claude command root layout', reporter)
     if (claude_ai_root / 'SKILL.md').is_file():

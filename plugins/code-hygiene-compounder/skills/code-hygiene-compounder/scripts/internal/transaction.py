@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Callable
 
-from internal.evidence import SKIP_NAMES, reject_excluded_directories, tree_digest, unsafe_link
+from internal.evidence import FOLDED_SKIP_NAMES, reject_excluded_directories, tree_digest, unsafe_link
 
 
 def journal_path(current: Path) -> Path:
@@ -30,18 +31,22 @@ def remove_tree(path: Path, parent: Path, prefix: str) -> None:
 
 
 def write_journal(path: Path, payload: dict, *, exclusive: bool = False) -> None:
-    if exclusive:
-        with path.open("x", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, indent=2, sort_keys=True))
+    content = json.dumps(payload, indent=2, sort_keys=True)
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        return
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, indent=2, sort_keys=True))
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+        if exclusive:
+            os.link(temporary, path)
+        else:
+            if unsafe_link(path):
+                raise ValueError(f"unsafe transaction journal: {path}")
+            os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def check_runtime_data(path: Path) -> None:
@@ -68,7 +73,7 @@ def runtime_directories(root: Path) -> list[Path]:
 
     for current, dirs, _ in os.walk(root, onerror=fail):
         for name in list(dirs):
-            if name in SKIP_NAMES:
+            if name.casefold() in FOLDED_SKIP_NAMES:
                 found.append(Path(current) / name)
                 dirs.remove(name)
     return found
@@ -91,7 +96,9 @@ def ensure_no_runtime_data(path: Path) -> None:
         raise ValueError(f"runtime data remains in backup: {path}")
 
 
-def apply_transaction(candidate: Path, current: Path, expected_current_fingerprint: str, expected_candidate_fingerprint: str, after_phase: Callable[[str], None] | None = None) -> Path:
+def apply_transaction(candidate: Path, current: Path, expected_current_fingerprint: str, expected_candidate_fingerprint: str, after_phase: Callable[[str], None] | None = None, evidence_bundle_sha256: str | None = None) -> Path:
+    if evidence_bundle_sha256 is not None and (len(evidence_bundle_sha256) != 64 or any(char not in "0123456789abcdef" for char in evidence_bundle_sha256)):
+        raise ValueError("invalid evidence bundle hash")
     if unsafe_link(candidate) or unsafe_link(current):
         raise ValueError("link or junction transaction root")
     reject_excluded_directories(candidate)
@@ -116,11 +123,6 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
     backup = scoped(parent / f"{prefix}backup-{token}", parent, prefix)
     claimed = False
     try:
-        shutil.copytree(candidate, stage, ignore=lambda directory, names: {
-            name for name in names if name in SKIP_NAMES and (Path(directory) / name).is_dir()
-        })
-        if tree_digest(stage) != expected_candidate_fingerprint:
-            raise ValueError("staged candidate fingerprint mismatch")
         state = {
             "version": 1,
             "current": str(current),
@@ -128,10 +130,18 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
             "backup": str(backup),
             "current_fingerprint": expected_current_fingerprint,
             "candidate_fingerprint": expected_candidate_fingerprint,
-            "phase": "prepared",
+            "evidence_bundle_sha256": evidence_bundle_sha256,
+            "phase": "staging",
         }
         write_journal(journal, state, exclusive=True)
         claimed = True
+        shutil.copytree(candidate, stage, ignore=lambda directory, names: {
+            name for name in names if name.casefold() in FOLDED_SKIP_NAMES and (Path(directory) / name).is_dir()
+        })
+        if tree_digest(stage) != expected_candidate_fingerprint:
+            raise ValueError("staged candidate fingerprint mismatch")
+        state["phase"] = "prepared"
+        write_journal(journal, state)
         if after_phase:
             after_phase("prepared")
         if tree_digest(current) != expected_current_fingerprint:
@@ -163,13 +173,13 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
         ensure_no_runtime_data(backup)
         journal.unlink()
         return backup
-    except Exception:
+    except BaseException:
         if not claimed or not journal.exists():
             remove_tree(stage, parent, prefix)
         raise
 
 
-def recover_transaction(current: Path) -> Path | None:
+def recover_transaction(current: Path, report: dict | None = None) -> Path | None:
     if unsafe_link(current):
         raise ValueError("link or junction transaction root")
     current = current.absolute()
@@ -180,18 +190,28 @@ def recover_transaction(current: Path) -> Path | None:
     state = json.loads(journal.read_text(encoding="utf-8"))
     parent = current.parent
     recorded_current = Path(state.get("current", "")).absolute()
-    if state.get("version") != 1 or recorded_current != current or recorded_current.parent != parent or state.get("phase") not in {"prepared", "backed_up", "installed", "committed"}:
+    if state.get("version") != 1 or recorded_current != current or recorded_current.parent != parent or state.get("phase") not in {"staging", "prepared", "backed_up", "installed", "committed"}:
         raise ValueError("transaction journal target mismatch")
     current = recorded_current
     prefix = f".{current.name}.promotion-"
     stage = scoped(Path(state["stage"]), parent, prefix)
     backup = scoped(Path(state["backup"]), parent, prefix)
+    if state["phase"] == "staging":
+        if backup.exists() or not current.exists() or tree_digest(current) != state.get("current_fingerprint"):
+            raise ValueError("staging state changed; recovery requires manual inspection")
+        remove_tree(stage, parent, prefix)
+        journal.unlink()
+        if report is not None:
+            report.update(action="cleared_staging", phase=state["phase"], backup=str(backup), journal_state=state)
+        return None
     if state["phase"] == "committed":
         if not current.exists() or tree_digest(current) != state.get("candidate_fingerprint"):
             raise ValueError("installed skill changed since installation; recovery requires manual inspection")
         ensure_no_runtime_data(backup)
         remove_tree(stage, parent, prefix)
         journal.unlink()
+        if report is not None:
+            report.update(action="commit_closed", phase=state["phase"], backup=str(backup), journal_state=state)
         return backup if backup.exists() else None
     if backup.exists():
         if tree_digest(backup) != state.get("current_fingerprint"):
@@ -207,8 +227,13 @@ def recover_transaction(current: Path) -> Path | None:
         os.replace(backup, current)
         if discarded:
             remove_tree(discarded, parent, prefix)
+        action = "rolled_back"
     elif not current.exists() or tree_digest(current) != state.get("current_fingerprint"):
         raise ValueError("original skill is unavailable; recovery requires manual inspection")
+    else:
+        action = "cleared_prepared"
     remove_tree(stage, parent, prefix)
     journal.unlink()
+    if report is not None:
+        report.update(action=action, phase=state["phase"], backup=str(backup), journal_state=state)
     return None

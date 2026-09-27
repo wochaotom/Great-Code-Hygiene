@@ -6,13 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from internal.evidence import digest, evaluate_bundle, tree_digest, unsafe_link
+from internal.evidence import evaluate_bundle, tree_digest, unsafe_link
 from internal.transaction import apply_transaction, journal_path, recover_transaction
 from validate_honing_report import load_json as load_honing_json
 from validate_honing_report import validate_report as validate_honing_report_payload
@@ -169,8 +170,12 @@ def validate_honing_report(path: Path) -> list[str]:
 
 def append_decision_log(path: Path, decision: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if unsafe_link(path):
+        raise ValueError(f"unsafe decision log: {path}")
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(decision, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def main() -> None:
@@ -202,15 +207,19 @@ def main() -> None:
             if journal.is_file() and not unsafe_link(journal):
                 state = json.loads(journal.read_text(encoding="utf-8"))
                 phase = state.get("phase") if isinstance(state, dict) else None
-            retained_backup = recover_transaction(args.current)
-            action = "commit_closed" if phase == "committed" else "cleared_prepared" if phase == "prepared" else "rolled_back"
-            decision = {"decided_at": utc_now(), "recovered": True, "current": str(args.current), "journal": str(journal), "phase": phase, "action": action, "installed_fingerprint": tree_digest(args.current), "retained_backup": str(retained_backup) if retained_backup else None}
+            recovery: dict = {}
+            retained_backup = recover_transaction(args.current, report=recovery)
         except (Exception, SystemExit) as exc:
             decision = {"decided_at": utc_now(), "recovered": False, "current": str(args.current), "journal": str(journal), "phase": phase, "error": str(exc)}
             if args.log:
                 append_decision_log(args.log, decision)
             print(json.dumps(decision, indent=2, sort_keys=True))
             raise SystemExit(1) from exc
+        decision = {"decided_at": utc_now(), "recovered": True, "current": str(args.current), "journal": str(journal), "phase": recovery["phase"], "action": recovery["action"], "journal_state": recovery["journal_state"], "retained_backup": str(retained_backup) if retained_backup else None}
+        try:
+            decision["installed_fingerprint"] = tree_digest(args.current)
+        except (OSError, ValueError) as exc:
+            decision["installed_fingerprint_error"] = str(exc)
         if args.log:
             append_decision_log(args.log, decision)
         print(json.dumps(decision, indent=2, sort_keys=True))
@@ -226,6 +235,8 @@ def main() -> None:
         errors.extend(validate_apply_target(current, candidate))
     if args.apply and args.allow_non_major_evidence:
         errors.append("--allow-non-major-evidence cannot be used with --apply")
+    if args.apply and args.evidence_bundle and not args.log:
+        errors.append("--apply requires --log for a durable transaction audit")
     if args.score:
         score, score_errors = load_score(args.score)
         errors.extend(score_errors)
@@ -263,24 +274,34 @@ def main() -> None:
         "applied": False,
         "errors": errors,
     })
-    if args.evidence_bundle and args.evidence_bundle.is_file():
-        try:
-            decision["evidence_bundle_sha256"] = digest(args.evidence_bundle)
-        except OSError as exc:
-            errors.append(f"evidence bundle cannot be hashed: {exc}")
+    if args.evidence_bundle and decision.get("promotion_ready") and not decision.get("evidence_bundle_sha256"):
+        errors.append("validated evidence bundle hash is missing")
     if errors:
         decision["promotion_ready"] = False
 
     if decision["promotion_ready"] and args.apply:
         try:
-            retained_backup = apply_transaction(candidate, current, decision["baseline_fingerprint"], decision["candidate_fingerprint"])
+            append_decision_log(args.log, {
+                "event": "apply_started", "decided_at": utc_now(), "current": str(current),
+                "candidate": str(candidate), "baseline_fingerprint": decision["baseline_fingerprint"],
+                "candidate_fingerprint": decision["candidate_fingerprint"],
+                "evidence_bundle_sha256": decision.get("evidence_bundle_sha256"),
+            })
+            retained_backup = apply_transaction(candidate, current, decision["baseline_fingerprint"], decision["candidate_fingerprint"], evidence_bundle_sha256=decision["evidence_bundle_sha256"])
             decision["applied"] = True
             decision["retained_backup"] = str(retained_backup)
-        except (Exception, SystemExit) as exc:
-            decision["apply_error"] = str(exc)
-            decision["errors"].append(f"apply failed: {exc}")
+        except BaseException as exc:
+            decision["event"] = "apply_failed"
+            decision["apply_error"] = str(exc) or type(exc).__name__
+            decision["errors"].append(f"apply failed: {decision['apply_error']}")
             decision["journal"] = str(journal_path(current))
             decision["promotion_ready"] = False
+            try:
+                installed = tree_digest(current)
+                decision["installation_state"] = "candidate-present" if installed == decision["candidate_fingerprint"] else "baseline-present" if installed == decision["baseline_fingerprint"] else "indeterminate"
+                decision["applied"] = decision["installation_state"] == "candidate-present"
+            except (OSError, ValueError):
+                decision["installation_state"] = "indeterminate"
             if args.log:
                 append_decision_log(args.log, decision)
             print(json.dumps(decision, indent=2, sort_keys=True))

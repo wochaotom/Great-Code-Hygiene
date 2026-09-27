@@ -20,6 +20,20 @@ from internal.evidence import tree_digest, unsafe_link
 
 
 class ExportDeterminismTests(unittest.TestCase):
+    def test_generated_archive_text_has_lf_on_every_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for mode in ("claude-code-skill", "claude-ai-skill", "legacy-command"):
+                command = [sys.executable, "-B", str(SCRIPTS / "export_claude_package.py"),
+                           "--skill-root", str(SCRIPTS.parent), "--out-dir", str(root),
+                           "--zip-name", f"{mode}.zip", "--format", mode]
+                completed = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                with zipfile.ZipFile(root / f"{mode}.zip") as archive:
+                    for name in archive.namelist():
+                        if name.endswith(("SKILL.md", "INSTALL.txt", "commands/code-hygiene.md")):
+                            self.assertNotIn(b"\r\n", archive.read(name), f"{mode}: {name}")
+
     def test_cli_does_not_replace_unowned_zip_without_export_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

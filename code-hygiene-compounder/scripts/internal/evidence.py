@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -13,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from statistics import mean
 
-from internal.policy import CRITICAL_CATEGORIES, PROMOTION_THRESHOLD
+from internal.policy import CATEGORY_KEYS, CRITICAL_CATEGORIES, PROMOTION_THRESHOLD
 from internal.json_integrity import loads_strict
 from fixture_runner import classify_test_outcome, executed_test_count, parse_test_report
 from pass100_runner import load_prompts
@@ -24,6 +25,11 @@ SKIP_NAMES = frozenset({"runs", "__pycache__", ".pytest_cache", ".mypy_cache", "
 PACKAGE_ROOTS = frozenset({"SKILL.md", ".claude-plugin", "agents", "fixtures", "references", "scripts"})
 FOLDED_SKIP_NAMES = frozenset(name.casefold() for name in SKIP_NAMES) | {"dist"}
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+CONTROL_PATHS = (
+    ".claude-plugin/plugin.json", "agents", "fixtures", "scripts",
+    "references/eval-prompts.md", "references/PASS-100.md",
+    "references/source-weights.json", "references/context-index.schema.json",
+)
 
 
 def digest(path: Path) -> str:
@@ -44,13 +50,25 @@ def unsafe_link(path: Path) -> bool:
     )
 
 
+def exact_path(root: Path, relative: str) -> bool:
+    current = root
+    for part in Path(relative).parts:
+        if part not in os.listdir(current):
+            return False
+        current /= part
+    return True
+
+
 def reject_excluded_directories(root: Path) -> None:
     def fail(error: OSError) -> None:
         raise error
 
     for current, dirs, files in os.walk(root, onerror=fail):
         base = Path(current)
-        for name in dirs + files:
+        names = dirs + files
+        if len({name.casefold() for name in names}) != len(names):
+            raise ValueError(f"candidate contains case-colliding siblings: {base}")
+        for name in names:
             path = base / name
             if unsafe_link(path):
                 raise ValueError(f"candidate contains unsafe link: {path}")
@@ -73,7 +91,7 @@ def tree_digest(root: Path) -> str:
             child = base / name
             if unsafe_link(child):
                 raise ValueError(f"unsafe link in tree: {child}")
-        dirs[:] = sorted(name for name in dirs if name not in SKIP_NAMES)
+        dirs[:] = sorted(name for name in dirs if name.casefold() not in FOLDED_SKIP_NAMES)
         for name in sorted(files):
             file = base / name
             if unsafe_link(file):
@@ -97,7 +115,7 @@ def instruction_sizes(root: Path) -> tuple[int, int]:
     def fail(error: OSError) -> None:
         raise error
 
-    for subtree in (root / "SKILL.md", references, root / "agents"):
+    for subtree in (root / "SKILL.md", references):
         if subtree.is_file():
             files_to_count = [subtree]
         elif subtree.is_dir():
@@ -108,7 +126,11 @@ def instruction_sizes(root: Path) -> tuple[int, int]:
                     if unsafe_link(base / name):
                         raise ValueError(f"unsafe instruction path: {base / name}")
                 dirs[:] = [name for name in dirs if name.casefold() not in FOLDED_SKIP_NAMES and name.casefold() != ".claude-plugin"]
-                files_to_count.extend(base / name for name in files if name.casefold() not in FOLDED_SKIP_NAMES)
+                files_to_count.extend(
+                    base / name for name in files
+                    if name.casefold() not in FOLDED_SKIP_NAMES
+                    and (base != references or name not in {"context-index.json", "context-index.schema.json", "source-weights.json"})
+                )
         else:
             continue
         for path in files_to_count:
@@ -181,12 +203,16 @@ def artifact_registry(manifest: Path, entries: object) -> tuple[dict[str, Path],
 
 
 def control_hashes(accepted_root: Path) -> dict[str, str]:
+    if not all(exact_path(accepted_root, relative) for relative in CONTROL_PATHS):
+        raise ValueError(f"control path casing differs from accepted layout: {accepted_root}")
     return {
         "suite": digest(accepted_root / "references" / "eval-prompts.md"),
         "rubric": digest(accepted_root / "references" / "PASS-100.md"),
         "policy": digest(accepted_root / "scripts" / "internal" / "policy.py"),
         "weights": digest(accepted_root / "references" / "source-weights.json"),
-        "plugin_manifest": digest(accepted_root / ".claude-plugin" / "plugin.json"),
+        "plugin_manifest": tree_digest(accepted_root / ".claude-plugin"),
+        "index_schema": digest(accepted_root / "references" / "context-index.schema.json"),
+        "agents": tree_digest(accepted_root / "agents"),
         "verifier": tree_digest(accepted_root / "scripts"),
         "fixtures": tree_digest(accepted_root / "fixtures"),
     }
@@ -245,7 +271,11 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     gates: list[dict] = []
     decision = {"schema_version": 2, "bundle": str(manifest), "promotion_ready": False, "gates": gates}
     try:
-        bundle = read_json(manifest)
+        manifest_bytes = manifest.read_bytes()
+        bundle = loads_strict(manifest_bytes.decode("utf-8-sig"))
+        if not isinstance(bundle, dict):
+            raise ValueError("expected JSON object")
+        decision["evidence_bundle_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         gate(gates, "bundle_format", False, str(exc))
         return decision
@@ -279,7 +309,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         controls_ok = separated and baseline_controls_match and bundle.get("controls") == actual_controls
         gate(gates, "accepted_controls", controls_ok,
              "controls match the baseline and external verifier" if controls_ok else "external verifier is not anchored to baseline controls")
-        candidate_controls = tree_digest(candidate / "scripts") == tree_digest(accepted / "scripts") and tree_digest(candidate / "fixtures") == actual_controls["fixtures"] and digest(candidate / ".claude-plugin" / "plugin.json") == actual_controls["plugin_manifest"] and all(
+        candidate_controls = all(exact_path(candidate, relative) for relative in CONTROL_PATHS) and tree_digest(candidate / "scripts") == tree_digest(accepted / "scripts") and tree_digest(candidate / "fixtures") == actual_controls["fixtures"] and tree_digest(candidate / ".claude-plugin") == actual_controls["plugin_manifest"] and tree_digest(candidate / "agents") == actual_controls["agents"] and digest(candidate / "references" / "context-index.schema.json") == actual_controls["index_schema"] and all(
             digest(candidate / "references" / name) == digest(accepted / "references" / name)
             for name in ("eval-prompts.md", "PASS-100.md", "source-weights.json")
         )
@@ -605,8 +635,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     continue
                 for prompt_id, old in before.items():
                     new = after[prompt_id]
-                    baseline_totals.append(sum(float(value) for value in old["categories"].values()))
-                    candidate_totals.append(sum(float(value) for value in new["categories"].values()))
+                    baseline_totals.append(math.fsum(float(old["categories"][key]) for key in CATEGORY_KEYS))
+                    candidate_totals.append(math.fsum(float(new["categories"][key]) for key in CATEGORY_KEYS))
                     if prompt_id in critical:
                         for category in CRITICAL_CATEGORIES:
                             if new["categories"][category] < old["categories"][category]:

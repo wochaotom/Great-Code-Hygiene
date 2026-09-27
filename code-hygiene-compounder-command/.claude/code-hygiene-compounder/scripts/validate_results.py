@@ -194,6 +194,8 @@ def validate_score_item(
                 continue
             if value < 0 or value > maximum:
                 errors.append(f"{label}.categories.{key}={value} outside 0..{maximum}")
+            if schema_version == 2 and float(value) * 2 != int(float(value) * 2):
+                errors.append(f"{label}.categories.{key} must use half-point increments")
             category_values[key] = float(value)
 
     total = item.get("total")
@@ -204,7 +206,9 @@ def validate_score_item(
         numeric_total = float(total)
         if numeric_total < 0 or numeric_total > 100:
             errors.append(f"{label}.total={total} outside 0..100")
-        subtotal = sum(category_values.values())
+        if schema_version == 2 and numeric_total * 2 != int(numeric_total * 2):
+            errors.append(f"{label}.total must use half-point increments")
+        subtotal = math.fsum(category_values[key] for key in CATEGORY_KEYS if key in category_values)
         tolerance = 1e-9 if schema_version == 2 else 0.01
         if len(category_values) == len(CATEGORY_KEYS) and abs(numeric_total - subtotal) > tolerance:
             errors.append(f"{label}.total {total} does not match category sum {subtotal:g}")

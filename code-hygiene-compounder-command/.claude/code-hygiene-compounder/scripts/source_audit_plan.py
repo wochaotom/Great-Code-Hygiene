@@ -320,7 +320,7 @@ def main() -> None:
             print(json.dumps({"valid": True, "path": str(args.out), "files": len(payload["files"])}, sort_keys=True))
             return
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(text, encoding="utf-8")
+        args.out.write_text(text, encoding="utf-8", newline="\n")
         print(json.dumps({"path": str(args.out), "files": len(payload["files"])}, sort_keys=True))
         return
 

@@ -288,13 +288,13 @@ def write_install(path: Path, mode: str) -> None:
             "Legacy command package. Copy the .claude folder into your Claude Code project or home configuration.\n"
             "Then run /code-hygiene when you want the workflow.\n"
         )
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def export_claude_code_skill(skill_root: Path, package_root: Path) -> None:
     skill_dest = package_root / ".claude" / "skills" / SKILL_NAME
     skill_dest.mkdir(parents=True, exist_ok=True)
-    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8")
+    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8", newline="\n")
     copy_supporting_files(skill_root, skill_dest)
     write_install(package_root / "INSTALL.txt", "claude-code-skill")
 
@@ -302,7 +302,7 @@ def export_claude_code_skill(skill_root: Path, package_root: Path) -> None:
 def export_claude_ai_skill(skill_root: Path, package_root: Path) -> None:
     skill_dest = package_root / SKILL_NAME
     skill_dest.mkdir(parents=True, exist_ok=True)
-    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8")
+    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8", newline="\n")
     copy_supporting_files(skill_root, skill_dest)
 
 
@@ -314,7 +314,7 @@ def export_legacy_command(skill_root: Path, package_root: Path) -> None:
     command_dir.mkdir(parents=True, exist_ok=True)
     reference_dest.parent.mkdir(parents=True, exist_ok=True)
 
-    (command_dir / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8")
+    (command_dir / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8", newline="\n")
     copy_tree(skill_root / "references", reference_dest)
     copy_tree(skill_root / "scripts", script_dest)
     fixtures = skill_root / "fixtures"
@@ -327,7 +327,7 @@ def export_portable_prompt(skill_root: Path, out_dir: Path) -> None:
     prompt_path = out_dir / PORTABLE_PROMPT_NAME
     validate_prompt_export_path(skill_root, prompt_path)
     out_dir.mkdir(parents=True, exist_ok=True)
-    prompt_path.write_text(build_portable_prompt(skill_root), encoding="utf-8")
+    prompt_path.write_text(build_portable_prompt(skill_root), encoding="utf-8", newline="\n")
     print(f"Wrote {prompt_path}")
 
 
@@ -342,13 +342,13 @@ def sync_repo(repo_root: Path) -> None:
     reject_export_links(source)
     copy_tree(source, plugin, extra_excludes=(".claude-plugin",))
     claude_ai.mkdir(parents=True, exist_ok=True)
-    (claude_ai / "SKILL.md").write_text(read_skill_text(source), encoding="utf-8")
+    (claude_ai / "SKILL.md").write_text(read_skill_text(source), encoding="utf-8", newline="\n")
     for name in ("references", "scripts", "fixtures"):
         copy_tree(source / name, claude_ai / name)
         copy_tree(source / name, command / name)
-    (repo_root / "code-hygiene-compounder-command" / ".claude" / "commands" / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8")
+    (repo_root / "code-hygiene-compounder-command" / ".claude" / "commands" / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8", newline="\n")
     portable = repo_root / "portable-prompts" / PORTABLE_PROMPT_NAME
-    portable.write_text(build_portable_prompt(source), encoding="utf-8")
+    portable.write_text(build_portable_prompt(source), encoding="utf-8", newline="\n")
 
 
 def main() -> None:

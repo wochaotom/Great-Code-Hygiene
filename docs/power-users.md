@@ -328,19 +328,22 @@ accepted-path tests prove only gate behavior, never an actual promotion.
 Script-only and audit-backed scores
 cannot be mixed with model-execution scores for promotion.
 
-The accepted verifier, rubric, suite, fixtures, source weights, and policy must remain outside
+The accepted verifier, rubric, suite, fixtures, source weights, plugin metadata,
+agent metadata, context-index schema, and policy must remain outside
 the candidate tree and match the installed baseline's controls. Candidate edits
 to those controls require ordinary reviewed repository maintenance. A promotion
 must cover every prompt in each predeclared focused category, not a favorable
 subset. Its applicable executable fixtures must reproduce the declared baseline
 failure signature and pass on the candidate, with protected test files unchanged.
-A promotion also requires structural budgets, package parity, no mean or
-critical-category regression on any evaluated prompt,
+A promotion also requires structural budgets, package parity, no aggregate
+mean regression and no critical-category regression on declared critical prompts,
 a focused average of at least 85, and a predeclared gain (or equal behavior with
 smaller active instructions). For equal-score promotions, the conservative size
-check counts `SKILL.md` and every eligible file under `references/` and `agents/`
-in both trees. Plugin metadata and other non-instruction files cannot supply a
-size reduction; the candidate plugin manifest must match accepted controls.
+check counts `SKILL.md` and eligible instruction files under `references/`
+in both trees. Generated context-index JSON, its schema, source-weight JSON,
+agent metadata, and plugin metadata cannot supply a size reduction; the pinned
+control files must match accepted controls. V2 category and total scores use
+half-point increments, so floating-point dust cannot constitute a gain.
 Candidate roots outside the declared package layout are rejected.
 It requires at least 32 fewer bytes and 16 fewer non-whitespace bytes; moving
 text into another extension or trimming only whitespace does not qualify.
@@ -352,13 +355,19 @@ snapshot hashes. The reviewer must inspect the snapshots as well as run records.
 Source-backed edits need a valid honing report in the bundle. Unavailable gates
 fail; they do not become implicit passes.
 
+Promotion `--apply` requires a writable `--log` path outside the candidate;
+the flushed `apply_started` record precedes the directory swap. Its absence
+blocks application. The current path must be the full canonical trainer
+package, including its controlled scripts, fixtures, agents, and plugin
+metadata; an isolated edition export is not a promotion baseline.
 Installation stages the candidate, verifies its fingerprint, journals the
 transaction, and swaps directories. A pending journal blocks another apply
 until `promote_candidate.py --current path/to/skill --recover` rolls back an
 incomplete swap or closes a verified commit journal. Runtime data excluded
 from promotion is moved into the new installation. The previous tree is
 retained at the reported `retained_backup` path even after a successful apply;
-quiesce writers and inspect it before manual removal. This avoids deleting a
+run recovery only after the apply process has exited. Quiesce writers and
+inspect the backup before manual removal. This avoids deleting a
 late write into the old tree during automatic cleanup.
 If runtime data appears in both trees or remains in the backup after the move,
 the journal and backup remain intact for manual reconciliation.

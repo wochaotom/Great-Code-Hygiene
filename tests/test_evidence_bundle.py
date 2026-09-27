@@ -51,6 +51,72 @@ class EvidenceBundleTests(unittest.TestCase):
             (candidate / "SKILL.md").write_text("Same instructions with extra guidance\n", encoding="utf-8")
             self.assertGreater(instruction_bytes(candidate), instruction_bytes(current))
 
+    def test_reference_index_and_agent_metadata_do_not_count_as_instructions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            current, candidate = Path(temp) / "current", Path(temp) / "candidate"
+            for tree in (current, candidate):
+                (tree / "references").mkdir(parents=True)
+                (tree / "agents").mkdir()
+                (tree / "SKILL.md").write_text("Same instructions\n", encoding="utf-8")
+            for name in ("context-index.json", "context-index.schema.json"):
+                (current / "references" / name).write_text("metadata" * 100, encoding="utf-8")
+                (candidate / "references" / name).write_text("{}", encoding="utf-8")
+            (current / "agents" / "openai.yaml").write_text("metadata" * 100, encoding="utf-8")
+            (candidate / "agents" / "openai.yaml").write_text("name: small", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("Same instructions with added guidance\n", encoding="utf-8")
+            self.assertGreater(instruction_bytes(candidate), instruction_bytes(current))
+
+    def test_nested_reference_named_like_metadata_still_counts_as_instruction(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "references" / "nested").mkdir(parents=True)
+            (root / "SKILL.md").write_text("Read nested reference\n", encoding="utf-8")
+            initial = instruction_bytes(root)
+            (root / "references" / "nested" / "context-index.json").write_text("Actual nested guidance\n", encoding="utf-8")
+            self.assertGreater(instruction_bytes(root), initial)
+
+    def test_candidate_casefold_sibling_collision_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            candidate = Path(temp)
+            references = candidate / "references"
+            references.mkdir()
+            (references / "PASS-100.md").write_text("old", encoding="utf-8")
+            (references / "pass-100.md").write_text("new", encoding="utf-8")
+            if len(list(references.iterdir())) != 2:
+                self.skipTest("filesystem does not support case-distinct siblings")
+            with self.assertRaisesRegex(ValueError, "case-colliding"):
+                reject_excluded_directories(candidate)
+
+    def test_extra_root_plugin_metadata_fails_candidate_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            (candidate / ".claude-plugin" / "notes.md").write_text("moved instructions", encoding="utf-8")
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle["candidate_fingerprint"] = tree_digest(candidate)
+            manifest.write_text(json.dumps(bundle), encoding="utf-8")
+            decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "candidate_control_isolation")["status"], "fail")
+
+    def test_decision_hash_binds_parsed_manifest_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(decision["evidence_bundle_sha256"], hashlib.sha256(manifest.read_bytes()).hexdigest())
+
+    def test_case_only_control_rename_fails_candidate_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            original = candidate / "references" / "PASS-100.md"
+            renamed = candidate / "references" / "Pass-100.md"
+            original.rename(renamed)
+            if "PASS-100.md" in {item.name for item in renamed.parent.iterdir()}:
+                self.skipTest("filesystem did not rename the control file")
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle["candidate_fingerprint"] = tree_digest(candidate)
+            manifest.write_text(json.dumps(bundle), encoding="utf-8")
+            decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "candidate_control_isolation")["status"], "fail")
+
     def test_case_variant_excluded_candidate_path_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             candidate = Path(temp)
@@ -241,7 +307,7 @@ class EvidenceBundleTests(unittest.TestCase):
         current, candidate, package = root / "current", root / "candidate", root / "package"
         for target in (current, candidate):
             shutil.copytree(SCRIPTS.parent, target, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "runs"))
-        (candidate / "agents" / "openai.yaml").write_text((candidate / "agents" / "openai.yaml").read_text(encoding="utf-8") + "\n# synthetic change\n", encoding="utf-8")
+        (candidate / "SKILL.md").write_text((candidate / "SKILL.md").read_text(encoding="utf-8") + "\nX", encoding="utf-8")
         package.mkdir()
         shutil.copytree(candidate, package / "code-hygiene-compounder")
         controls = control_hashes(SCRIPTS.parent)
