@@ -343,7 +343,9 @@ paths and protected-test changes. A pass claim cannot use a snapshot identical
 to the known-failing accepted source, and a report must retain every test
 identity observed in the untouched baseline (exactly those identities when
 all test files are protected). Each execution also carries the
-predeclared plan hash. Use `fixture_runner.py snapshot` after running
+predeclared plan hash. The plan, both scored results, and every execution
+record must agree on the harness command and settings; the recorded execution
+arguments must exactly match the planned command. Use `fixture_runner.py snapshot` after running
 the tests to create it. This binding makes the edited target inspectable but
 does not, by itself, prove the recorded tests ran on that exact archive.
 Edited fixture targets are executable code. Run them only in an appropriately

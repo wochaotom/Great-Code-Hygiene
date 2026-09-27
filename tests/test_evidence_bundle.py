@@ -424,6 +424,7 @@ class EvidenceBundleTests(unittest.TestCase):
         shutil.copytree(candidate, package / "code-hygiene-compounder")
         controls = control_hashes(SCRIPTS.parent)
         runtime = {"os": "test-os", "python": "3.13", "node": "24", "codex": "test-cli"}
+        harness_config = {"argv": ["codex", "exec"], "settings": {"max_turns": 40}}
         artifacts: list[dict] = []
 
         def add(identity: str, content: object) -> str:
@@ -434,7 +435,7 @@ class EvidenceBundleTests(unittest.TestCase):
             return identity
 
         target_artifact = add("target-a-snapshot", "synthetic target source snapshot")
-        add("plan", {"schema_version": 2, "declared_at": "2026-01-01T00:00:00Z", "run_type": "model-execution", "mode": "focused", "categories": [SYNTHETIC_CATEGORY], "target_ids": ["target-a"], "target_artifacts": {"target-a": target_artifact}, "trial_count": 1, "prompt_ids": SYNTHETIC_PROMPTS, "critical_prompt_ids": SYNTHETIC_PROMPTS, "model": "test-model", "harness": "test-harness", "runtime": runtime, "controls": controls, "applicable_fixture_ids": [], "fixture_na_reason": "No fixture maps to synthetic documentation category", "improvement": {"type": "score"}, "source_backed": False})
+        add("plan", {"schema_version": 2, "declared_at": "2026-01-01T00:00:00Z", "run_type": "model-execution", "mode": "focused", "categories": [SYNTHETIC_CATEGORY], "target_ids": ["target-a"], "target_artifacts": {"target-a": target_artifact}, "trial_count": 1, "prompt_ids": SYNTHETIC_PROMPTS, "critical_prompt_ids": SYNTHETIC_PROMPTS, "model": "test-model", "harness": "test-harness", "harness_config": harness_config, "runtime": runtime, "controls": controls, "applicable_fixture_ids": [], "fixture_na_reason": "No fixture maps to synthetic documentation category", "improvement": {"type": "score"}, "source_backed": False})
         plan_sha = next(entry["sha256"] for entry in artifacts if entry["id"] == "plan")
         runs = []
         inspected = [target_artifact, "plan"]
@@ -448,10 +449,10 @@ class EvidenceBundleTests(unittest.TestCase):
             for prompt_id in SYNTHETIC_PROMPTS[1:]:
                 scores.append({"prompt_id": prompt_id, "categories": dict(CATEGORY_KEYS), "total": 100, "deductions": [], "lessons": [], "rubric_flags": {key: False for key in RUBRIC_CAPS}})
             skill_fingerprint = tree_digest(current if arm == "baseline" else candidate)
-            result = {"schema_version": 2, "run_id": run_id, "run_type": "model-execution", "phase": 0, "target_id": "target-a", "trial": 1, "arm": arm, "model": "test-model", "harness": "test-harness", "runtime": runtime, "skill_version": "0.3.0", "skill_fingerprint": skill_fingerprint, "started_at": "2026-01-02T00:00:00Z", "completed_at": "2026-01-02T00:01:00Z", "prompt_ids": SYNTHETIC_PROMPTS, "scores": scores}
+            result = {"schema_version": 2, "run_id": run_id, "run_type": "model-execution", "phase": 0, "target_id": "target-a", "trial": 1, "arm": arm, "model": "test-model", "harness": "test-harness", "harness_config": harness_config, "runtime": runtime, "skill_version": "0.3.0", "skill_fingerprint": skill_fingerprint, "started_at": "2026-01-02T00:00:00Z", "completed_at": "2026-01-02T00:01:00Z", "prompt_ids": SYNTHETIC_PROMPTS, "scores": scores}
             output_id = add(f"output-{arm}", f"captured {arm} model output")
             output_sha = next(entry["sha256"] for entry in artifacts if entry["id"] == output_id)
-            execution_id = add(f"execution-{arm}", {"run_id": run_id, "operator_id": "test-operator", "target_id": "target-a", "target_artifact": target_artifact, "plan_sha256": plan_sha, "trial": 1, "arm": arm, "model": "test-model", "harness": "test-harness", "runtime": runtime, "skill_fingerprint": skill_fingerprint, "fresh_context": True, "scored_candidate_trial": True, "process_exit": 0, "argv": ["codex", "exec"], "output_artifact": output_id, "output_sha256": output_sha, "started_at": "2026-01-02T00:00:00Z", "ended_at": "2026-01-02T00:01:00Z"})
+            execution_id = add(f"execution-{arm}", {"run_id": run_id, "operator_id": "test-operator", "target_id": "target-a", "target_artifact": target_artifact, "plan_sha256": plan_sha, "trial": 1, "arm": arm, "model": "test-model", "harness": "test-harness", "harness_config": harness_config, "runtime": runtime, "skill_fingerprint": skill_fingerprint, "fresh_context": True, "scored_candidate_trial": True, "process_exit": 0, "argv": ["codex", "exec"], "output_artifact": output_id, "output_sha256": output_sha, "started_at": "2026-01-02T00:00:00Z", "ended_at": "2026-01-02T00:01:00Z"})
             verification_id = add(f"verification-{arm}", {"run_id": run_id, "status": "pass", "fixture_results": []})
             result_id = add(f"result-{arm}", result)
             runs.append({"target_id": "target-a", "trial": 1, "arm": arm, "result_artifact": result_id, "execution_artifact": execution_id, "output_artifact": output_id, "verification_artifact": verification_id})
@@ -995,6 +996,21 @@ class EvidenceBundleTests(unittest.TestCase):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertFalse(decision["promotion_ready"])
             self.assertEqual(next(g for g in decision["gates"] if g["name"] == "execution_capture")["status"], "fail")
+
+    def test_harness_configuration_and_command_must_match_plan(self) -> None:
+        for artifact_id, mutation in (
+            ("result-candidate", lambda payload: payload["harness_config"]["settings"].update(max_turns=1)),
+            ("execution-baseline", lambda payload: payload["harness_config"]["settings"].update(max_turns=1)),
+            ("execution-candidate", lambda payload: payload["harness_config"]["settings"].update(max_turns=1)),
+            ("execution-candidate", lambda payload: payload["argv"].extend(["--max-turns", "1"])),
+        ):
+            with self.subTest(artifact_id=artifact_id, mutation=mutation), tempfile.TemporaryDirectory() as temp:
+                manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+                self.rewrite_artifact(manifest, artifact_id, mutation)
+                with patch("validate_package.validate", return_value={"valid": True}):
+                    decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+                self.assertFalse(decision["promotion_ready"], decision["gates"])
+                self.assertEqual(next(g for g in decision["gates"] if g["name"] == "matched_trials")["status"], "fail")
 
     def test_captured_output_cannot_be_reused_across_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -419,6 +419,10 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             and isinstance(critical, list) and bool(critical) and all(isinstance(item, str) and item for item in critical) and len(set(critical)) == len(critical) and set(critical) == set(prompts)
             and isinstance(plan.get("model"), str) and bool(plan["model"])
             and isinstance(plan.get("harness"), str) and bool(plan["harness"])
+            and isinstance(plan.get("harness_config"), dict)
+            and isinstance(plan["harness_config"].get("argv"), list) and bool(plan["harness_config"]["argv"])
+            and all(isinstance(arg, str) and arg for arg in plan["harness_config"]["argv"])
+            and isinstance(plan["harness_config"].get("settings"), dict) and bool(plan["harness_config"]["settings"])
             and isinstance(plan.get("runtime"), dict) and all(plan["runtime"].get(key) for key in ("os", "python", "node", "codex"))
             and isinstance(plan.get("applicable_fixture_ids"), list)
             and all(isinstance(item, str) and item for item in plan["applicable_fixture_ids"])
@@ -603,9 +607,12 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 raise ValueError("invalid result: " + "; ".join(result_errors))
             if set(result["prompt_ids"]) != set(prompts):
                 raise ValueError("run prompt set differs from predeclared plan")
-            if result.get("model") != plan["model"] or result.get("harness") != plan["harness"] or result.get("runtime") != plan["runtime"]:
+            if (result.get("model") != plan["model"] or result.get("harness") != plan["harness"]
+                    or result.get("harness_config") != plan["harness_config"] or result.get("runtime") != plan["runtime"]):
                 raise ValueError("result model, harness, or runtime differs from plan")
-            if execution.get("model") != plan["model"] or execution.get("harness") != plan["harness"] or execution.get("runtime") != plan["runtime"]:
+            if (execution.get("model") != plan["model"] or execution.get("harness") != plan["harness"]
+                    or execution.get("harness_config") != plan["harness_config"] or execution.get("runtime") != plan["runtime"]
+                    or execution.get("argv") != plan["harness_config"]["argv"]):
                 raise ValueError("execution model, harness, or runtime differs from plan")
             expected_skill = current_hash if key[2] == "baseline" else candidate_hash
             if result.get("skill_fingerprint") != expected_skill or execution.get("skill_fingerprint") != expected_skill:
