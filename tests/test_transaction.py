@@ -22,6 +22,30 @@ def approved_apply(candidate: Path, current: Path, after_phase=None) -> None:
 
 
 class TransactionTests(unittest.TestCase):
+    def test_recovery_accepts_same_aliased_parent_used_for_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            real, alias = root / "real", root / "alias"
+            real.mkdir()
+            try:
+                alias.symlink_to(real, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symlinks unavailable: {exc}")
+            current, candidate = alias / "current", alias / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupt(phase: str) -> None:
+                if phase == "backed_up":
+                    raise RuntimeError("interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                approved_apply(candidate, current, after_phase=interrupt)
+            recover_transaction(current)
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+
     def test_journal_bytes_are_flushed_before_swap(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             journal = Path(temp) / "journal.json"

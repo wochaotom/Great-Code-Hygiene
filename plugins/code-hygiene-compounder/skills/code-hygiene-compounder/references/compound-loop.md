@@ -68,7 +68,7 @@ Promote automatically only when all conditions hold:
 - Source-grounded promotions require a valid honing report checked by `scripts/validate_honing_report.py` and referenced in the versioned evidence bundle.
 - Only a v2 evidence bundle containing predeclared matched trials, hashed external execution records, verification artifacts, and a separate raw fresh-reviewer output matching the review report can authorize `promote_candidate.py --apply`. Accepted controls must match the installed baseline and remain outside the candidate tree. Legacy `--score` remains diagnostic-only.
 - Instruction length stays concise; longer updates need measurable benefit.
-- Equal-score size promotions must reduce the combined bytes of `SKILL.md` and all reference Markdown, not just shift instructions between files.
+- Equal-score size promotions must reduce the combined bytes of `SKILL.md` and every file under `references/` and `agents/` by at least 32 bytes, including at least 16 non-whitespace bytes; moving instructions to another extension or trimming whitespace alone does not qualify.
 - Candidate does not add broad, vague rules such as "be more careful" without operational behavior.
 - Candidate removes, merges, or narrows existing guidance when possible.
 

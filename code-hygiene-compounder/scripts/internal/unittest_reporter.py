@@ -23,12 +23,28 @@ class RecordingResult(unittest.TextTestResult):
         super().addSuccess(test)
 
     def addFailure(self, test, err):
-        self.failed_ids.append(test.id())
+        if test.id() not in self.failed_ids and test.id() not in self.error_ids:
+            self.failed_ids.append(test.id())
         super().addFailure(test, err)
 
     def addError(self, test, err):
-        self.error_ids.append(test.id())
+        if test.id() in self.failed_ids:
+            self.failed_ids.remove(test.id())
+        if test.id() not in self.error_ids:
+            self.error_ids.append(test.id())
         super().addError(test, err)
+
+    def addSubTest(self, test, subtest, err):
+        super().addSubTest(test, subtest, err)
+        if err is not None:
+            if issubclass(err[0], test.failureException):
+                if test.id() not in self.failed_ids and test.id() not in self.error_ids:
+                    self.failed_ids.append(test.id())
+            else:
+                if test.id() in self.failed_ids:
+                    self.failed_ids.remove(test.id())
+                if test.id() not in self.error_ids:
+                    self.error_ids.append(test.id())
 
 
 def main() -> int:

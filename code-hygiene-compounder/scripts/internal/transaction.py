@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
-from internal.evidence import SKIP_NAMES, tree_digest, unsafe_link
+from internal.evidence import SKIP_NAMES, reject_excluded_directories, tree_digest, unsafe_link
 
 
 def journal_path(current: Path) -> Path:
@@ -88,6 +88,7 @@ def ensure_no_runtime_data(path: Path) -> None:
 def apply_transaction(candidate: Path, current: Path, expected_current_fingerprint: str, expected_candidate_fingerprint: str, after_phase: Callable[[str], None] | None = None) -> Path:
     if unsafe_link(candidate) or unsafe_link(current):
         raise ValueError("link or junction transaction root")
+    reject_excluded_directories(candidate)
     current = current.absolute()
     journal = journal_path(current)
     if journal.exists():
@@ -161,7 +162,10 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
 
 
 def recover_transaction(current: Path) -> Path | None:
+    if unsafe_link(current):
+        raise ValueError("link or junction transaction root")
     current = current.absolute()
+    current = current.parent.resolve(strict=True) / current.name
     journal = journal_path(current)
     if not journal.is_file() or unsafe_link(journal):
         raise ValueError(f"no safe transaction journal: {journal}")

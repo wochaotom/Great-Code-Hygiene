@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from datetime import datetime
@@ -32,7 +33,23 @@ def digest(path: Path) -> str:
 
 
 def unsafe_link(path: Path) -> bool:
-    return path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction())
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        os.name == "nt" and getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
+def reject_excluded_directories(root: Path) -> None:
+    def fail(error: OSError) -> None:
+        raise error
+
+    for current, dirs, _ in os.walk(root, onerror=fail):
+        for name in dirs:
+            if name in SKIP_NAMES:
+                raise ValueError(f"candidate contains excluded directory: {Path(current) / name}")
 
 
 def tree_digest(root: Path) -> str:
@@ -61,14 +78,26 @@ def tree_digest(root: Path) -> str:
     return value.hexdigest()
 
 
-def instruction_bytes(root: Path) -> int:
+def instruction_sizes(root: Path) -> tuple[int, int]:
     references = root / "references"
     if not references.is_dir():
         raise ValueError(f"missing instruction references: {references}")
-    files = [root / "SKILL.md", *references.rglob("*.md")]
+    files = [root / "SKILL.md", *(path for path in references.rglob("*") if path.is_file())]
+    agents = root / "agents"
+    if agents.is_dir():
+        files.extend(path for path in agents.rglob("*") if path.is_file())
     if any(not path.is_file() or unsafe_link(path) for path in files):
         raise ValueError(f"unsafe instruction file in: {root}")
-    return sum(path.stat().st_size for path in files)
+    total = significant = 0
+    for path in files:
+        content = path.read_bytes()
+        total += len(content)
+        significant += sum(byte not in b" \t\r\n\f\v" for byte in content)
+    return total, significant
+
+
+def instruction_bytes(root: Path) -> int:
+    return instruction_sizes(root)[0]
 
 
 def read_json(path: Path) -> dict:
@@ -132,6 +161,7 @@ def control_hashes(accepted_root: Path) -> dict[str, str]:
         "suite": digest(accepted_root / "references" / "eval-prompts.md"),
         "rubric": digest(accepted_root / "references" / "PASS-100.md"),
         "policy": digest(accepted_root / "scripts" / "internal" / "policy.py"),
+        "weights": digest(accepted_root / "references" / "source-weights.json"),
         "verifier": tree_digest(accepted_root / "scripts"),
         "fixtures": tree_digest(accepted_root / "fixtures"),
     }
@@ -204,6 +234,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         return decision
 
     try:
+        reject_excluded_directories(candidate)
         current_hash, candidate_hash = tree_digest(current), tree_digest(candidate)
         stable = bundle.get("baseline_fingerprint") == current_hash and bundle.get("candidate_fingerprint") == candidate_hash and current_hash != candidate_hash
         gate(gates, "skill_fingerprints", stable, "candidate and baseline tree hashes match" if stable else "tree fingerprint mismatch")
@@ -337,8 +368,12 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     fixture_result_ids: set[str] = set()
     execution_ids: set[str] = set()
     inspected_ids: set[str] = {bundle["plan_artifact"], *target_artifacts.values()}
-    if plan.get("source_backed") is True and isinstance(bundle.get("honing_artifact"), str):
-        inspected_ids.add(bundle["honing_artifact"])
+    if plan.get("source_backed") is True:
+        honing_id = bundle.get("honing_artifact")
+        if not isinstance(honing_id, str) or honing_id not in paths:
+            gate(gates, "source_grounding", False, "source-backed plan lacks a registered honing artifact")
+            return decision
+        inspected_ids.add(honing_id)
     operator_ids: set[str] = set()
     problems: list[str] = []
     for entry in run_entries:
@@ -504,7 +539,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     try:
         source_changed = any(
             digest(current / "references" / name) != digest(candidate / "references" / name)
-            for name in ("training-lessons.md", "source-registry.md")
+            for name in ("training-lessons.md", "source-registry.md", "source-weights.json")
         ) or tree_digest(current / "references" / "source-packs") != tree_digest(candidate / "references" / "source-packs")
     except (OSError, ValueError) as exc:
         gate(gates, "source_grounding", False, f"source comparison unavailable: {exc}")
@@ -560,10 +595,11 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             improved = average_after is not None and average_before is not None and average_after > average_before
         else:
             try:
-                baseline_bytes = instruction_bytes(current)
-                candidate_bytes = instruction_bytes(candidate)
+                baseline_bytes, baseline_content = instruction_sizes(current)
+                candidate_bytes, candidate_content = instruction_sizes(candidate)
                 decision["instruction_bytes"] = {"baseline": baseline_bytes, "candidate": candidate_bytes}
-                improved = average_after is not None and average_before is not None and average_after == average_before and candidate_bytes < baseline_bytes
+                improved = (average_after is not None and average_before is not None and average_after == average_before
+                            and baseline_bytes - candidate_bytes >= 32 and baseline_content - candidate_content >= 16)
             except (OSError, ValueError):
                 improved = False
         gate(gates, "predeclared_improvement", improved, "predeclared gain observed" if improved else "declared gain not observed")

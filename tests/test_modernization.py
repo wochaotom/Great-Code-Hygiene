@@ -99,6 +99,34 @@ class PromotionPathTests(unittest.TestCase):
 
 
 class FixtureOutcomeTests(unittest.TestCase):
+    def test_unittest_subtest_failure_and_error_have_parent_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "test_sub.py").write_text(
+                "import unittest\nclass SubTests(unittest.TestCase):\n"
+                "    def test_failure(self):\n"
+                "        with self.subTest(case='fail'): self.assertEqual(1, 2)\n"
+                "    def test_error(self):\n"
+                "        with self.subTest(case='error'): raise RuntimeError('bad fixture')\n",
+                encoding="utf-8",
+            )
+            fixture = {"id": "subtests", "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"]}
+            execution = run_fixture_command(fixture, root, 10)
+            report = execution["test_report"]
+            self.assertEqual(report["failures"], ["test_sub.SubTests.test_failure"])
+            self.assertEqual(report["errors"], ["test_sub.SubTests.test_error"])
+            self.assertEqual(classify_test_outcome(execution, {"framework": "python-unittest", "test_count_min": 2})["outcome"], "unexpected_test_error")
+
+    def test_unaccounted_test_identity_is_not_a_confirmed_baseline(self) -> None:
+        execution = {"exit_code": 1, "test_report": {
+            "framework": "python-unittest", "tests_run": 2, "skipped": 0, "expected_failures": 0,
+            "passed": [], "failures": ["test_contract"], "errors": [],
+        }}
+        result = classify_test_outcome(execution, {"framework": "python-unittest", "test_count_min": 2, "expected_failures": ["test_contract"]})
+        self.assertEqual(result["outcome"], "unexpected_test_error")
+
     def test_resolved_fixture_requires_original_failure_to_pass(self) -> None:
         outcome = classify_test_outcome(
             {"exit_code": 0, "test_report": {"framework": "python-unittest", "tests_run": 2, "passed": ["test_other"], "failures": [], "errors": []}},

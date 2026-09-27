@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "code-hygiene-compounder" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from internal.evidence import artifact_registry, control_hashes, evaluate_bundle, tree_digest, verify_transcript_fixture
+from internal.evidence import artifact_registry, control_hashes, evaluate_bundle, instruction_bytes, tree_digest, verify_transcript_fixture
 from internal.policy import CATEGORY_KEYS, RUBRIC_CAPS
 from pass100_runner import load_prompts
 
@@ -27,6 +27,39 @@ SYNTHETIC_PROMPTS = [item["id"] for item in load_prompts(SCRIPTS.parent / "refer
 
 
 class EvidenceBundleTests(unittest.TestCase):
+    def test_non_markdown_reference_content_is_counted_for_size_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            current, candidate = Path(temp) / "current", Path(temp) / "candidate"
+            for tree in (current, candidate):
+                (tree / "references").mkdir(parents=True)
+                (tree / "SKILL.md").write_text("Read references/quick.md\n", encoding="utf-8")
+                (tree / "references" / "quick.md").write_text("Keep the verification loop deterministic.\n", encoding="utf-8")
+            (candidate / "references" / "quick.md").write_text("", encoding="utf-8")
+            (candidate / "references" / "quick.txt").write_text("Keep the verification loop deterministic.\n", encoding="utf-8")
+            self.assertGreaterEqual(instruction_bytes(candidate), instruction_bytes(current))
+
+    def test_candidate_excluded_directory_cannot_authorize_promotion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            hidden = candidate / "references" / ".git"
+            hidden.mkdir()
+            (hidden / "guidance.md").write_text("Candidate-only instruction", encoding="utf-8")
+            with patch("validate_package.validate", return_value={"valid": True}):
+                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertFalse(decision["promotion_ready"])
+
+    def test_missing_honing_artifact_is_a_logged_gate_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            self.rewrite_artifact(manifest, "plan", lambda payload: payload.update(source_backed=True))
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle["honing_artifact"] = "not-registered"
+            manifest.write_text(json.dumps(bundle), encoding="utf-8")
+            with patch("validate_package.validate", return_value={"valid": True}):
+                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertFalse(decision["promotion_ready"])
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "source_grounding")["status"], "fail")
+
     def test_transcript_evidence_must_use_run_output_and_accepted_expectation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -271,7 +304,22 @@ class EvidenceBundleTests(unittest.TestCase):
             self.rebind_review(manifest)
             with patch("validate_package.validate", return_value={"valid": True}):
                 smaller = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
-            self.assertTrue(smaller["promotion_ready"], smaller["gates"])
+            self.assertFalse(smaller["promotion_ready"], smaller["gates"])
+            self.assertEqual(next(g for g in smaller["gates"] if g["name"] == "predeclared_improvement")["status"], "fail")
+
+            old_sentence = "Use this skill to make code changes safer, smaller, more testable, and easier to review."
+            skill.write_text(skill.read_text(encoding="utf-8").replace(old_sentence, "Use this skill to improve code."), encoding="utf-8", newline="\n")
+            shutil.copy2(skill, package_skill / "SKILL.md")
+            candidate_hash = tree_digest(candidate)
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle["candidate_fingerprint"] = candidate_hash
+            manifest.write_text(json.dumps(bundle), encoding="utf-8")
+            self.rewrite_artifact(manifest, "result-candidate", lambda payload: payload.update(skill_fingerprint=candidate_hash))
+            self.rewrite_artifact(manifest, "execution-candidate", lambda payload: payload.update(skill_fingerprint=candidate_hash))
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                meaningful = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertTrue(meaningful["promotion_ready"], meaningful["gates"])
 
     def test_mixed_cohort_and_rubric_cap_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -319,6 +367,24 @@ class EvidenceBundleTests(unittest.TestCase):
             for skill in (accepted, candidate):
                 policy = skill / relative
                 policy.write_text(policy.read_text(encoding="utf-8") + "\n# altered accepted control\n", encoding="utf-8")
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle["controls"] = control_hashes(accepted)
+            bundle["candidate_fingerprint"] = tree_digest(candidate)
+            manifest.write_text(json.dumps(bundle), encoding="utf-8")
+            self.rewrite_artifact(manifest, "plan", lambda payload: payload.update(controls=control_hashes(accepted)))
+            with patch("validate_package.validate", return_value={"valid": True}):
+                decision = evaluate_bundle(manifest, current, candidate, accepted)
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "accepted_controls")["status"], "fail")
+
+    def test_modified_external_source_weights_must_match_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest, current, candidate = self.make_synthetic_bundle(root)
+            accepted = root / "accepted"
+            shutil.copytree(SCRIPTS.parent, accepted, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "runs"))
+            for skill in (accepted, candidate):
+                weights = skill / "references" / "source-weights.json"
+                weights.write_text(weights.read_text(encoding="utf-8") + "\n", encoding="utf-8")
             bundle = json.loads(manifest.read_text(encoding="utf-8"))
             bundle["controls"] = control_hashes(accepted)
             bundle["candidate_fingerprint"] = tree_digest(candidate)
@@ -567,7 +633,10 @@ class EvidenceBundleTests(unittest.TestCase):
             for arm in ("baseline", "candidate"):
                 self.rewrite_artifact(manifest, f"result-{arm}", lambda payload: (payload.update(prompt_ids=["HYG-006"], scores=payload["scores"][:1]), payload["scores"][0].update(prompt_id="HYG-006")))
                 baseline_failure = arm == "baseline"
-                report = {"framework": "python-unittest", "tests_run": 4, "failures": signature if baseline_failure else [], "errors": [], "passed": [] if baseline_failure else signature}
+                other = "test_pricing.PricingTests.test_whole_dollar_total"
+                report = {"framework": "python-unittest", "tests_run": 4, "skipped": 0, "expected_failures": 0,
+                          "failures": signature if baseline_failure else [], "errors": [],
+                          "passed": [other] if baseline_failure else sorted(signature + [other])}
                 artifact_id = f"fixture-{arm}"
                 self.add_artifact(manifest, artifact_id, {"fixture_id": fixture_id, "run_id": f"run-{arm}", "target_id": "target-a", "trial": 1, "arm": arm, "skill_fingerprint": tree_digest(current if baseline_failure else candidate), "outcome": "expected_assertion_failure" if baseline_failure else "pass", "resolved": not baseline_failure, "signature_matched": baseline_failure, "protected_files_ok": True, "tests_passed": not baseline_failure, "exit_code": 1 if baseline_failure else 0, "timed_out": False, "framework": "python-unittest", "command": [sys.executable, "-m", "unittest", "discover", "-s", "tests"], "stdout_tail": "CODE_HYGIENE_TEST_RESULT=" + json.dumps(report), "test_report": report})
                 self.rewrite_artifact(manifest, f"verification-{arm}", lambda payload: payload.update(fixture_results=[{"fixture_id": fixture_id, "result_artifact": artifact_id}]))
@@ -693,6 +762,9 @@ class EvidenceBundleTests(unittest.TestCase):
             score.write_text(json.dumps({"average": 100, "promotion_ready": True, "run_type": "model-execution", "evidence_warning": {"run_type": "model-execution", "major_promotion_evidence": True}}), encoding="utf-8")
             completed = subprocess.run([sys.executable, "-B", str(SCRIPTS / "promote_candidate.py"), "--current", str(current), "--candidate", str(candidate), "--score", str(score), "--apply"], capture_output=True, text=True)
             self.assertNotEqual(completed.returncode, 0)
+            diagnostic = subprocess.run([sys.executable, "-B", str(SCRIPTS / "promote_candidate.py"), "--current", str(current), "--candidate", str(candidate), "--score", str(score)], capture_output=True, text=True)
+            self.assertNotEqual(diagnostic.returncode, 0)
+            self.assertFalse(json.loads(diagnostic.stdout)["promotion_ready"])
             self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), (candidate / "SKILL.md").read_text(encoding="utf-8"))
 
 

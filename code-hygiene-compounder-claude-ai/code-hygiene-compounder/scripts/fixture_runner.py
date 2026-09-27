@@ -68,7 +68,15 @@ def executed_test_count(report: dict) -> int | None:
             or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in exclusions)):
         return None
     executed = count - sum(exclusions)
-    return executed if executed >= 0 else None
+    if executed < 0:
+        return None
+    identities = [report.get(key) for key in ("passed", "failures", "errors")]
+    if executed == 0 and any(item is None for item in identities):
+        return 0
+    if any(not isinstance(item, list) or any(not isinstance(value, str) or not value for value in item) for item in identities):
+        return None
+    all_ids = [identity for group in identities for identity in group]
+    return executed if len(all_ids) == executed and len(set(all_ids)) == executed else None
 
 
 def classify_test_outcome(command_result: dict, signature: dict) -> dict:

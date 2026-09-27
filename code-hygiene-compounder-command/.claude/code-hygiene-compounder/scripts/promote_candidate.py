@@ -252,7 +252,7 @@ def main() -> None:
             handle.write(json.dumps(decision, sort_keys=True) + "\n")
 
     print(json.dumps(decision, indent=2, sort_keys=True))
-    if errors or (args.evidence_bundle and not decision["promotion_ready"]):
+    if errors or not decision["promotion_ready"]:
         raise SystemExit(1)
 
 

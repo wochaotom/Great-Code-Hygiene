@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import shutil
 import zipfile
@@ -19,6 +21,7 @@ CLAUDE_SKILL_DESCRIPTION = (
     "PASS-100 scoring and source-grounded compounding."
 )
 PORTABLE_PROMPT_NAME = "code-hygiene-compounder-chat.md"
+EXPORT_MARKER = ".great-code-hygiene-export.json"
 
 
 COMMAND_TEXT = """# Code Hygiene Compounder
@@ -207,10 +210,38 @@ def validate_export_paths(skill_root: Path, package_root: Path, zip_path: Path) 
     skill_root = skill_root.resolve(strict=True)
     package_root = package_root.resolve(strict=False)
     zip_path = zip_path.resolve(strict=False)
-    if package_root == skill_root or is_relative_to(package_root, skill_root):
-        raise SystemExit("refusing to export Claude package inside the skill root")
+    if package_root == skill_root or is_relative_to(package_root, skill_root) or is_relative_to(skill_root, package_root):
+        raise SystemExit("refusing to export Claude package inside or over the skill root")
     if is_relative_to(zip_path, skill_root):
         raise SystemExit("refusing to write Claude zip inside the skill root")
+
+
+def export_inventory(root: Path) -> dict:
+    reject_export_links(root)
+    return {
+        "directories": sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()),
+        "files": {
+            path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(root.rglob("*")) if path.is_file() and path.name != EXPORT_MARKER
+        },
+    }
+
+
+def prepare_export_root(package_root: Path) -> None:
+    if not package_root.exists():
+        return
+    marker = package_root / EXPORT_MARKER
+    try:
+        recorded = json.loads(marker.read_text(encoding="utf-8"))
+        if recorded != export_inventory(package_root):
+            raise ValueError("export contents changed")
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"refusing to replace unowned or modified export: {package_root}: {exc}") from exc
+    shutil.rmtree(package_root)
+
+
+def mark_export_root(package_root: Path) -> None:
+    (package_root / EXPORT_MARKER).write_text(json.dumps(export_inventory(package_root), sort_keys=True), encoding="utf-8")
 
 
 def validate_prompt_export_path(skill_root: Path, prompt_path: Path) -> None:
@@ -334,11 +365,13 @@ def main() -> None:
         export_portable_prompt(args.skill_root, args.out_dir)
         return
 
-    package_root = args.out_dir / Path(args.zip_name).stem
+    zip_name = Path(args.zip_name)
+    if zip_name.name != args.zip_name or zip_name.suffix.lower() != ".zip" or not zip_name.stem:
+        parser.error("--zip-name must be a simple .zip filename")
+    package_root = args.out_dir / zip_name.stem
     zip_path = args.out_dir / args.zip_name
     validate_export_paths(args.skill_root, package_root, zip_path)
-    if package_root.exists():
-        shutil.rmtree(package_root)
+    prepare_export_root(package_root)
     if args.format == "claude-code-skill":
         export_claude_code_skill(args.skill_root, package_root)
     elif args.format == "claude-ai-skill":
@@ -346,6 +379,7 @@ def main() -> None:
     else:
         export_legacy_command(args.skill_root, package_root)
 
+    mark_export_root(package_root)
     zip_dir(package_root, zip_path)
     print(f"Wrote {zip_path}")
 

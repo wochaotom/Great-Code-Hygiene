@@ -328,7 +328,7 @@ accepted-path tests prove only gate behavior, never an actual promotion.
 Script-only and audit-backed scores
 cannot be mixed with model-execution scores for promotion.
 
-The accepted verifier, rubric, suite, fixtures, and policy must remain outside
+The accepted verifier, rubric, suite, fixtures, source weights, and policy must remain outside
 the candidate tree and match the installed baseline's controls. Candidate edits
 to those controls require ordinary reviewed repository maintenance. A promotion
 must cover every prompt in each predeclared focused category, not a favorable
@@ -338,8 +338,11 @@ A promotion also requires structural budgets, package parity, no mean or
 critical-category regression on any evaluated prompt,
 a focused average of at least 85, and a predeclared gain (or equal behavior with
 smaller active instructions). For equal-score promotions, the conservative size
-check counts `SKILL.md` and all Markdown files under `references/`; simply
-moving text into a reference does not qualify. Each target ID binds to a
+check counts `SKILL.md` and every file under `references/` and `agents/`.
+It requires at least 32 fewer bytes and 16 fewer non-whitespace bytes; moving
+text into another extension or trimming only whitespace does not qualify.
+Candidate trees containing excluded runtime or metadata directories are rejected,
+since those files would not be installed. Each target ID binds to a
 nonempty snapshot
 artifact in the plan and execution record; hard mode needs three distinct
 snapshot hashes. The reviewer must inspect the snapshots as well as run records.
@@ -356,6 +359,11 @@ quiesce writers and inspect it before manual removal. This avoids deleting a
 late write into the old tree during automatic cleanup.
 If runtime data appears in both trees or remains in the backup after the move,
 the journal and backup remain intact for manual reconciliation.
+
+Claude export refuses an output directory that overlaps the skill root or an
+existing directory it did not create. Repeated exports replace only an
+unchanged, marked prior export; user edits in that output are preserved by
+refusing the replacement.
 
 Phase advancement remains a human decision. The trainer can recommend more
 coverage but cannot declare that a broader eval phase is warranted on its own.
