@@ -34,4 +34,9 @@ def finite_number(value: object, *, integer: bool = False, nonnegative: bool = F
         return False
     if integer:
         return isinstance(value, int) and (not nonnegative or value >= 0)
-    return isinstance(value, (int, float)) and math.isfinite(value) and (not nonnegative or value >= 0)
+    if not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value) and (not nonnegative or value >= 0)
+    except OverflowError:
+        return False

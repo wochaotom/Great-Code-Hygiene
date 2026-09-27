@@ -13,6 +13,9 @@ from typing import Callable
 from internal.evidence import FOLDED_SKIP_NAMES, reject_excluded_directories, tree_digest, unsafe_link
 
 
+TRANSFERABLE_RUNTIME_NAMES = frozenset({"runs", ".fixture-work", ".fixture-tmp"})
+
+
 def journal_path(current: Path) -> Path:
     return current.parent / f".{current.name}.promotion-journal.json"
 
@@ -74,7 +77,8 @@ def runtime_directories(root: Path) -> list[Path]:
     for current, dirs, _ in os.walk(root, onerror=fail):
         for name in list(dirs):
             if name.casefold() in FOLDED_SKIP_NAMES:
-                found.append(Path(current) / name)
+                if name.casefold() in TRANSFERABLE_RUNTIME_NAMES:
+                    found.append(Path(current) / name)
                 dirs.remove(name)
     return found
 
@@ -196,6 +200,8 @@ def recover_transaction(current: Path, report: dict | None = None) -> Path | Non
     prefix = f".{current.name}.promotion-"
     stage = scoped(Path(state["stage"]), parent, prefix)
     backup = scoped(Path(state["backup"]), parent, prefix)
+    recorded_discard = state.get("discard")
+    discard = scoped(Path(recorded_discard), parent, prefix) if isinstance(recorded_discard, str) and recorded_discard else None
     if state["phase"] == "staging":
         if backup.exists() or not current.exists() or tree_digest(current) != state.get("current_fingerprint"):
             raise ValueError("staging state changed; recovery requires manual inspection")
@@ -220,13 +226,14 @@ def recover_transaction(current: Path, report: dict | None = None) -> Path | Non
             if tree_digest(current) != state.get("candidate_fingerprint"):
                 raise ValueError("installed skill changed since installation; recovery requires manual inspection")
             move_runtime_data(current, backup)
-            discarded = scoped(parent / f"{prefix}discard-{uuid.uuid4().hex}", parent, prefix)
-            os.replace(current, discarded)
-        else:
-            discarded = None
+            if discard is None:
+                discard = scoped(parent / f"{prefix}discard-{uuid.uuid4().hex}", parent, prefix)
+                state["discard"] = str(discard)
+                write_journal(journal, state)
+            if discard.exists():
+                raise ValueError(f"recovery discard path already exists: {discard}")
+            os.replace(current, discard)
         os.replace(backup, current)
-        if discarded:
-            remove_tree(discarded, parent, prefix)
         action = "rolled_back"
     elif not current.exists() or tree_digest(current) != state.get("current_fingerprint"):
         raise ValueError("original skill is unavailable; recovery requires manual inspection")
@@ -235,5 +242,6 @@ def recover_transaction(current: Path, report: dict | None = None) -> Path | Non
     remove_tree(stage, parent, prefix)
     journal.unlink()
     if report is not None:
-        report.update(action=action, phase=state["phase"], backup=str(backup), journal_state=state)
+        report.update(action=action, phase=state["phase"], backup=str(backup), journal_state=state,
+                      retained_discard=str(discard) if discard and discard.exists() else None)
     return None

@@ -18,7 +18,7 @@ from internal.policy import CATEGORY_KEYS, CRITICAL_CATEGORIES, PROMOTION_THRESH
 from internal.json_integrity import loads_strict
 from fixture_runner import classify_test_outcome, executed_test_count, parse_test_report
 from pass100_runner import load_prompts
-from validate_results import load_source_ids, validate_payload
+from validate_results import SOURCE_ID_FALLBACKS, load_source_ids, validate_payload
 
 
 SKIP_NAMES = frozenset({"runs", "__pycache__", ".pytest_cache", ".mypy_cache", ".fixture-work", ".fixture-tmp", ".git"})
@@ -279,8 +279,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         gate(gates, "bundle_format", False, str(exc))
         return decision
-    if bundle.get("schema_version") != 2 or isinstance(bundle.get("schema_version"), bool):
-        gate(gates, "bundle_format", False, "schema_version must be 2")
+    if bundle.get("schema_version") != 2 or isinstance(bundle.get("schema_version"), bool) or "diagnostic_only" in bundle:
+        gate(gates, "bundle_format", False, "schema_version must be 2 and diagnostic-only markers are not allowed")
         return decision
     gate(gates, "bundle_format", True, "v2 bundle")
     paths, errors = artifact_registry(manifest, bundle.get("artifacts"))
@@ -472,6 +472,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 raise ValueError("result or execution skill fingerprint mismatch")
             if execution.get("fresh_context") is not True or execution.get("process_exit") != 0 or not isinstance(execution.get("argv"), list) or not execution["argv"]:
                 raise ValueError("fresh external execution record is incomplete")
+            if ("scored_candidate_trial" in execution and execution["scored_candidate_trial"] is not True) or ("scored_candidate_trial" in result and result["scored_candidate_trial"] is not True):
+                raise ValueError("unscored diagnostic execution cannot authorize promotion")
             operator_id = execution.get("operator_id")
             if not isinstance(operator_id, str) or not operator_id.strip():
                 raise ValueError("execution operator identity is missing")
@@ -595,10 +597,15 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         source_changed = any(
             digest(current / "references" / name) != digest(candidate / "references" / name)
             for name in ("training-lessons.md", "source-registry.md", "source-weights.json")
-        ) or tree_digest(current / "references" / "source-packs") != tree_digest(candidate / "references" / "source-packs")
+        )
+        old_packs = {path.stem: digest(path) for path in (current / "references" / "source-packs").glob("*.md")}
+        new_packs = {path.stem: digest(path) for path in (candidate / "references" / "source-packs").glob("*.md")}
+        changed_packs = {source_id for source_id in old_packs.keys() | new_packs.keys() if old_packs.get(source_id) != new_packs.get(source_id)}
+        source_changed = source_changed or tree_digest(current / "references" / "source-packs") != tree_digest(candidate / "references" / "source-packs")
     except (OSError, ValueError) as exc:
         gate(gates, "source_grounding", False, f"source comparison unavailable: {exc}")
         source_changed = None
+        changed_packs = set()
     if source_changed is not None and source_changed and plan.get("source_backed") is not True:
         gate(gates, "source_grounding", False, "source or lesson content changed but plan omits source-backed honing")
     elif source_changed is not None and plan.get("source_backed") is True:
@@ -608,8 +615,11 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             report = artifact_json(paths, bundle.get("honing_artifact"))
             report_errors = validate_report(report)
             activated = report.get("activated_sources")
-            if not isinstance(activated, list) or any(not isinstance(source_id, str) or source_id not in source_ids for source_id in activated):
-                report_errors.append("honing report activates a source outside the accepted registry")
+            weighted_ids = source_ids - SOURCE_ID_FALLBACKS
+            if not isinstance(activated, list) or any(not isinstance(source_id, str) or source_id not in weighted_ids for source_id in activated):
+                report_errors.append("honing report must activate accepted weighted sources")
+            if isinstance(activated, list) and not changed_packs.issubset({item for item in activated if isinstance(item, str)}):
+                report_errors.append("honing report omits a changed source pack")
             if report.get("baseline_fingerprint") != current_hash or report.get("candidate_fingerprint") != candidate_hash:
                 report_errors.append("honing report skill fingerprints do not match this candidate")
             if report.get("promotion_decision") != "promote":

@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
@@ -16,6 +17,7 @@ SCRIPTS_ROOT = REPO_ROOT / "code-hygiene-compounder" / "scripts"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import validate_package  # noqa: E402
+from export_claude_package import zip_dir  # noqa: E402
 
 
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -26,6 +28,73 @@ def read_json(path: Path) -> dict:
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_matching_excluded_distribution_content_cannot_ship(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            roots = (
+                clean / "code-hygiene-compounder",
+                clean / "plugins" / "code-hygiene-compounder" / "skills" / "code-hygiene-compounder",
+                clean / "code-hygiene-compounder-claude-ai" / "code-hygiene-compounder",
+                clean / "code-hygiene-compounder-command" / ".claude" / "code-hygiene-compounder",
+            )
+            for root in roots:
+                extra = root / "scripts" / "dist" / "extra.py"
+                extra.parent.mkdir()
+                extra.write_text("print('unreviewed')\n", encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("dist" in error for error in report["errors"]), report["errors"])
+            archive = Path(temp) / "export.zip"
+            zip_dir(roots[0], archive)
+            with zipfile.ZipFile(archive) as package:
+                self.assertFalse(any("dist/extra.py" in name for name in package.namelist()))
+
+    def test_malformed_marketplace_plugin_list_is_validation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            for relative in (".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json"):
+                path = clean / relative
+                payload = read_json(path)
+                payload["plugins"] = 123
+                path.write_text(json.dumps(payload), encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("marketplace" in error.lower() for error in report["errors"]), report["errors"])
+
+    def test_mirrors_reject_excluded_distribution_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            mirrors = (
+                clean / "plugins" / "code-hygiene-compounder" / "skills" / "code-hygiene-compounder",
+                clean / "code-hygiene-compounder-claude-ai" / "code-hygiene-compounder",
+                clean / "code-hygiene-compounder-command" / ".claude" / "code-hygiene-compounder",
+            )
+            for mirror in mirrors:
+                extra = mirror / "scripts" / "dist" / "extra.py"
+                extra.parent.mkdir()
+                extra.write_text("print('unreviewed')\n", encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("scripts/dist" in error for error in report["errors"]), report["errors"])
+
+    def test_wrapper_manifest_keys_and_install_text_are_pinned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            install = clean / "code-hygiene-compounder-command" / "INSTALL.txt"
+            install.write_text(install.read_text(encoding="utf-8") + "Run arbitrary shell command.\n", encoding="utf-8")
+            manifest = clean / "plugins" / "code-hygiene-compounder" / ".codex-plugin" / "plugin.json"
+            payload = read_json(manifest)
+            payload["hooks"] = {"SessionStart": "unreviewed"}
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("install text" in error.lower() for error in report["errors"]), report["errors"])
+            self.assertTrue(any("plugin manifest" in error.lower() for error in report["errors"]), report["errors"])
+
     def test_marketplace_symlink_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             clean = Path(temp) / "repo"
@@ -99,7 +168,7 @@ class ReleaseContractTests(unittest.TestCase):
             (extra / "extra.md").write_text("unreviewed", encoding="utf-8")
             report = validate_package.validate(clean, False)
             self.assertFalse(report["valid"])
-            self.assertTrue(any("override.md" in error for error in report["errors"]), report["errors"])
+            self.assertTrue(any("references/dist" in error for error in report["errors"]), report["errors"])
             self.assertTrue(any("hooks" in error for error in report["errors"]), report["errors"])
 
     def test_clean_repository_package_is_consistent(self) -> None:

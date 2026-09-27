@@ -18,6 +18,7 @@ from internal.evidence import unsafe_link
 from export_claude_package import COMMAND_TEXT
 from export_claude_package import EXCLUDED_NAMES
 from export_claude_package import build_portable_prompt
+from export_claude_package import install_text
 from export_claude_package import read_skill_text
 from export_claude_package import reject_export_links
 from source_audit_plan import context_index_errors
@@ -195,11 +196,10 @@ def check_entrypoint_content(repo_root: Path, reporter: Reporter) -> None:
         path = repo_root / relative
         if not path.is_file():
             continue
-        text = read_text(path)
-        if 'Exported at' in text:
-            reporter.fail_check('install text', f'{relative.as_posix()} contains non-deterministic export timestamp')
+        if path.read_bytes() != install_text('legacy-command').encode('utf-8'):
+            reporter.fail_check('install text', f'{relative.as_posix()} differs from the approved install text')
         else:
-            reporter.pass_check('install text', f'{relative.as_posix()} is deterministic')
+            reporter.pass_check('install text', f'{relative.as_posix()} matches the approved install text')
 def load_json(path: Path, repo_root: Path, label: str, reporter: Reporter) -> dict | None:
     try:
         payload = json.loads(path.read_text(encoding='utf-8-sig'))
@@ -220,17 +220,22 @@ def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None
     if marketplace is None or manifest is None:
         return
     plugins = marketplace.get('plugins')
-    matching = [item for item in plugins or [] if isinstance(item, dict) and item.get('name') == PLUGIN_NAME]
+    matching = [item for item in plugins if isinstance(item, dict) and item.get('name') == PLUGIN_NAME] if isinstance(plugins, list) else []
     errors: list[str] = []
     owner = marketplace.get('owner')
+    expect(errors, set(marketplace) != {'name', 'description', 'owner', 'plugins'}, 'marketplace has unreviewed fields')
+    expect(errors, isinstance(owner, dict) and set(owner) != {'name'}, 'marketplace owner has unreviewed fields')
     expect(errors, marketplace.get('name') != MARKETPLACE_NAME, f'marketplace name must be {MARKETPLACE_NAME}')
     expect(errors, not isinstance(owner, dict) or not owner.get('name'), 'marketplace owner.name is required')
     expect(errors, not isinstance(plugins, list) or len(plugins) != 1 or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
     if matching:
+        expect(errors, set(matching[0]) != {'name', 'version', 'source', 'description', 'author', 'repository', 'keywords'}, 'marketplace plugin has unreviewed fields')
         expect(errors, matching[0].get('source') != PLUGIN_SOURCE, f'{PLUGIN_NAME} source must be {PLUGIN_SOURCE}')
     expect(errors, any((isinstance(item, dict) and item.get('version') != PLUGIN_VERSION for item in matching)), f'marketplace plugin version must be {PLUGIN_VERSION}')
     for key, value in {'name': PLUGIN_NAME, 'repository': PLUGIN_REPOSITORY, 'skills': ['./'], 'agents': []}.items():
         expect(errors, manifest.get(key) != value, f'plugin manifest {key} must be {value}')
+    expect(errors, set(manifest) != {'name', 'version', 'description', 'author', 'repository', 'keywords', 'skills', 'agents'}, 'plugin manifest has unreviewed fields')
+    expect(errors, isinstance(manifest.get('author'), dict) and set(manifest['author']) != {'name'}, 'plugin manifest author has unreviewed fields')
     expect(errors, manifest.get('version') != PLUGIN_VERSION, f'plugin manifest version must be {PLUGIN_VERSION}')
     if errors:
         reporter.fail_check('Claude plugin marketplace', '; '.join(errors))
@@ -246,16 +251,22 @@ def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
     if marketplace is None or manifest is None:
         return
     plugins = marketplace.get('plugins')
-    matching = [item for item in plugins or [] if isinstance(item, dict) and item.get('name') == PLUGIN_NAME]
+    matching = [item for item in plugins if isinstance(item, dict) and item.get('name') == PLUGIN_NAME] if isinstance(plugins, list) else []
     errors: list[str] = []
+    expect(errors, set(marketplace) != {'name', 'interface', 'plugins'}, 'marketplace has unreviewed fields')
+    expect(errors, isinstance(marketplace.get('interface'), dict) and set(marketplace['interface']) != {'displayName'}, 'marketplace interface has unreviewed fields')
     expect(errors, marketplace.get('name') != MARKETPLACE_NAME, f'marketplace name must be {MARKETPLACE_NAME}')
     expect(errors, not isinstance(marketplace.get('interface'), dict) or not marketplace['interface'].get('displayName'), 'marketplace interface.displayName is required')
     expect(errors, not isinstance(plugins, list) or len(plugins) != 1 or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
     if matching:
         entry = matching[0]
+        expect(errors, set(entry) != {'name', 'source', 'policy', 'category'}, 'marketplace plugin has unreviewed fields')
         for key, value in {'source': {'source': 'local', 'path': CODEX_PLUGIN_SOURCE}, 'policy': {'installation': 'AVAILABLE', 'authentication': 'ON_INSTALL'}, 'category': 'Coding'}.items():
             expect(errors, entry.get(key) != value, f'marketplace {key} is invalid')
     interface = manifest.get('interface')
+    expect(errors, set(manifest) != {'name', 'version', 'description', 'author', 'homepage', 'repository', 'keywords', 'skills', 'interface'}, 'plugin manifest has unreviewed fields')
+    expect(errors, isinstance(manifest.get('author'), dict) and set(manifest['author']) != {'name', 'url'}, 'plugin manifest author has unreviewed fields')
+    expect(errors, isinstance(interface, dict) and set(interface) != {'displayName', 'shortDescription', 'longDescription', 'developerName', 'category', 'capabilities', 'websiteURL', 'defaultPrompt', 'brandColor'}, 'plugin manifest interface has unreviewed fields')
     for key, value in {'name': PLUGIN_NAME, 'version': PLUGIN_VERSION, 'repository': PLUGIN_REPOSITORY, 'skills': './skills/'}.items():
         expect(errors, manifest.get(key) != value, f'plugin manifest {key} is invalid')
     expect(errors, not isinstance(interface, dict) or interface.get('displayName') != 'Code Hygiene Compounder', 'plugin manifest interface.displayName is required')
@@ -302,6 +313,23 @@ def check_generated_artifacts(repo_root: Path, allow_runs: bool, reporter: Repor
         reporter.fail_check('generated directories', f'remove generated directories: {detail}')
     else:
         reporter.pass_check('generated directories', 'no cache or run directories found')
+
+
+def check_excluded_package_content(repo_root: Path, reporter: Reporter) -> None:
+    excluded = {name.casefold() for name in EXCLUDED_NAMES}
+    found: list[str] = []
+    for relative in PACKAGE_DIRS.values():
+        root = repo_root / relative
+        if not root.is_dir():
+            continue
+        for current, dirs, files in os.walk(root):
+            for name in dirs + files:
+                if name.casefold() in excluded:
+                    found.append(as_repo_path(Path(current) / name, repo_root))
+    if found:
+        reporter.fail_check('excluded package content', 'unreviewed excluded paths: ' + ', '.join(sorted(found)))
+    else:
+        reporter.pass_check('excluded package content', 'no fingerprint-excluded paths inside package roots')
 def check_source_packs(codex_root: Path, reporter: Reporter) -> None:
     weights_path = codex_root / 'references' / 'source-weights.json'
     packs_dir = codex_root / 'references' / 'source-packs'
@@ -477,6 +505,7 @@ def validate(repo_root: Path, allow_runs: bool) -> dict:
     check_public_docs(repo_root, reporter)
     check_path_budget(repo_root, reporter)
     check_generated_artifacts(repo_root, allow_runs, reporter)
+    check_excluded_package_content(repo_root, reporter)
     check_source_packs(repo_root / PACKAGE_DIRS['codex_skill'], reporter)
     check_context_index(repo_root / PACKAGE_DIRS['codex_skill'], reporter)
     check_export_sync(repo_root, reporter)

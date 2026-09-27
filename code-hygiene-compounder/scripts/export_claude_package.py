@@ -127,10 +127,10 @@ def copy_tree(src: Path, dest: Path, extra_excludes: tuple[str, ...] = ()) -> No
     source_root = src.resolve(strict=True)
 
     def ignored(directory: str, names: list[str]) -> set[str]:
-        excluded = set(EXCLUDED_NAMES)
+        excluded = {name.casefold() for name in EXCLUDED_NAMES}
         if Path(directory).resolve(strict=True) == source_root:
-            excluded.update(extra_excludes)
-        return set(names) & excluded
+            excluded.update(name.casefold() for name in extra_excludes)
+        return {name for name in names if name.casefold() in excluded}
 
     shutil.copytree(src, dest, symlinks=True, ignore=ignored)
     reject_export_links(dest)
@@ -143,7 +143,7 @@ def zip_dir(src: Path, zip_path: Path, prefix: str = "") -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(src.rglob("*"), key=lambda item: item.relative_to(src).as_posix()):
             relative_path = path.relative_to(src)
-            if path.is_file() and relative_path.as_posix() != EXPORT_MARKER and not any(part in EXCLUDED_NAMES for part in relative_path.parts):
+            if path.is_file() and relative_path.as_posix() != EXPORT_MARKER and not any(part.casefold() in EXCLUDED_NAMES for part in relative_path.parts):
                 if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
                     raise ValueError(f"unsafe export link: {path}")
                 archive_name = (Path(prefix) / relative_path).as_posix() if prefix else relative_path.as_posix()
@@ -273,7 +273,7 @@ def copy_supporting_files(skill_root: Path, dest: Path) -> None:
         copy_tree(fixtures, dest / "fixtures")
 
 
-def write_install(path: Path, mode: str) -> None:
+def install_text(mode: str) -> str:
     if mode == "claude-code-skill":
         text = (
             "Copy the .claude folder from this package into your Claude Code project or home configuration.\n"
@@ -288,7 +288,11 @@ def write_install(path: Path, mode: str) -> None:
             "Legacy command package. Copy the .claude folder into your Claude Code project or home configuration.\n"
             "Then run /code-hygiene when you want the workflow.\n"
         )
-    path.write_text(text, encoding="utf-8", newline="\n")
+    return text
+
+
+def write_install(path: Path, mode: str) -> None:
+    path.write_text(install_text(mode), encoding="utf-8", newline="\n")
 
 
 def export_claude_code_skill(skill_root: Path, package_root: Path) -> None:

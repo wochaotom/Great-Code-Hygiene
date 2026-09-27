@@ -363,6 +363,28 @@ class EvidenceBundleTests(unittest.TestCase):
                 self.assertFalse(tampered["promotion_ready"])
                 self.assertEqual(tampered["gates"][1]["name"], "artifact_integrity")
 
+    def test_diagnostic_only_bundle_cannot_authorize_promotion(self) -> None:
+        for marker in (True, "true", False):
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as temp:
+                manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+                bundle = json.loads(manifest.read_text(encoding="utf-8"))
+                bundle["diagnostic_only"] = marker
+                manifest.write_text(json.dumps(bundle), encoding="utf-8")
+                with patch("validate_package.validate", return_value={"valid": True}):
+                    decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+                self.assertFalse(decision["promotion_ready"])
+                self.assertEqual(decision["gates"][0]["name"], "bundle_format")
+
+    def test_unscored_candidate_execution_cannot_authorize_promotion(self) -> None:
+        for marker in (False, "false", 0):
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as temp:
+                manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+                self.rewrite_artifact(manifest, "execution-candidate", lambda payload: payload.update(scored_candidate_trial=marker))
+                with patch("validate_package.validate", return_value={"valid": True}):
+                    decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+                self.assertFalse(decision["promotion_ready"])
+                self.assertEqual(next(g for g in decision["gates"] if g["name"] == "matched_trials")["status"], "fail")
+
     def test_reviewer_report_cannot_serve_as_its_own_raw_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
@@ -606,6 +628,37 @@ class EvidenceBundleTests(unittest.TestCase):
             with patch("validate_package.validate", return_value={"valid": True}):
                 unknown_source = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertEqual(next(g for g in unknown_source["gates"] if g["name"] == "source_grounding")["status"], "fail")
+
+    def test_source_honing_requires_weighted_and_changed_sources(self) -> None:
+        for activated, changed in (("eval-failure", "training-lessons.md"),
+                                   ("nist-ssdf", "source-packs/agent-eval-methodology.md")):
+            with self.subTest(activated=activated, changed=changed), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                manifest, current, candidate = self.make_synthetic_bundle(root)
+                path = candidate / "references" / changed
+                path.write_text(path.read_text(encoding="utf-8") + "\nSynthetic source edit.\n", encoding="utf-8")
+                bundle = json.loads(manifest.read_text(encoding="utf-8"))
+                bundle["candidate_fingerprint"] = tree_digest(candidate)
+                manifest.write_text(json.dumps(bundle), encoding="utf-8")
+                self.rewrite_artifact(manifest, "plan", lambda payload: payload.update(source_backed=True))
+                for identity in ("result-candidate", "execution-candidate"):
+                    self.rewrite_artifact(manifest, identity, lambda payload: payload.update(skill_fingerprint=tree_digest(candidate)))
+                self.add_artifact(manifest, "honing", {
+                    "run_type": "source-grounded", "activated_sources": [activated],
+                    "principles_checked": ["repeatable verification"],
+                    "checklist_results": [{"source_id": activated, "checked": ["tests"]}],
+                    "pass100_score": 90, "promotion_decision": "promote",
+                    "baseline_fingerprint": tree_digest(current), "candidate_fingerprint": tree_digest(candidate),
+                    "lessons": [{"source_id": activated, "principle": "repeatable verification", "evidence": "synthetic evidence"}],
+                })
+                bundle = json.loads(manifest.read_text(encoding="utf-8"))
+                bundle["honing_artifact"] = "honing"
+                manifest.write_text(json.dumps(bundle), encoding="utf-8")
+                self.rewrite_artifact(manifest, "review", lambda payload: payload["inspected_artifact_ids"].append("honing"))
+                self.rebind_review(manifest)
+                with patch("validate_package.validate", return_value={"valid": True}):
+                    decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+                self.assertEqual(next(g for g in decision["gates"] if g["name"] == "source_grounding")["status"], "fail")
 
     def test_missing_artifact_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

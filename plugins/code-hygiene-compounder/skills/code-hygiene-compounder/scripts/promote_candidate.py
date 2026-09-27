@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -13,7 +12,17 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
+
+def reject_verifier_bytecode() -> None:
+    for current, dirs, files in os.walk(Path(__file__).resolve().parent):
+        if any(name.casefold() == "__pycache__" for name in dirs) or any(name.casefold().endswith((".pyc", ".pyo")) for name in files):
+            raise SystemExit(f"verifier bytecode is not allowed: {current}")
+
+
+reject_verifier_bytecode()
+
 from internal.evidence import evaluate_bundle, tree_digest, unsafe_link
+from internal.policy import finite_number
 from internal.transaction import apply_transaction, journal_path, recover_transaction
 from validate_honing_report import load_json as load_honing_json
 from validate_honing_report import validate_report as validate_honing_report_payload
@@ -62,7 +71,7 @@ def load_score(path: Path) -> tuple[dict, list[str]]:
     if not isinstance(score, dict):
         return {}, ["score must be a JSON object"]
     errors: list[str] = []
-    if not isinstance(score.get("average"), (int, float)) or isinstance(score.get("average"), bool) or not math.isfinite(score.get("average", float("nan"))):
+    if not finite_number(score.get("average")):
         errors.append("score.average must be finite numeric")
     if not isinstance(score.get("promotion_ready"), bool):
         errors.append("score.promotion_ready must be boolean")
@@ -178,6 +187,12 @@ def append_decision_log(path: Path, decision: dict) -> None:
         os.fsync(handle.fileno())
 
 
+def log_overlaps_tree(log: Path, tree: Path) -> bool:
+    log_path = log.resolve(strict=False)
+    root = tree.resolve(strict=False)
+    return log_path == root or root in log_path.parents
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gate and promote a candidate skill update.")
     parser.add_argument("--current", type=Path, required=True)
@@ -197,6 +212,9 @@ def main() -> None:
     parser.add_argument("--recover", action="store_true", help="Roll back an incomplete swap or finish the journal while retaining the old-tree backup.")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
+
+    if args.log and (log_overlaps_tree(args.log, args.current) or (args.candidate and log_overlaps_tree(args.log, args.candidate))):
+        parser.error("--log must be outside --current and --candidate trees")
 
     if args.recover:
         if args.apply or args.score or args.evidence_bundle or args.candidate or args.baseline_average is not None or args.honing_report or args.require_honing_report or args.allow_non_major_evidence:
@@ -294,12 +312,23 @@ def main() -> None:
             decision["event"] = "apply_failed"
             decision["apply_error"] = str(exc) or type(exc).__name__
             decision["errors"].append(f"apply failed: {decision['apply_error']}")
-            decision["journal"] = str(journal_path(current))
+            journal = journal_path(current)
+            decision["journal"] = str(journal)
             decision["promotion_ready"] = False
+            journal_phase = None
+            if journal.is_file() and not unsafe_link(journal):
+                try:
+                    journal_phase = json.loads(journal.read_text(encoding="utf-8")).get("phase")
+                except (OSError, ValueError, AttributeError):
+                    journal_phase = "unreadable"
+            decision["journal_phase"] = journal_phase
             try:
                 installed = tree_digest(current)
-                decision["installation_state"] = "candidate-present" if installed == decision["candidate_fingerprint"] else "baseline-present" if installed == decision["baseline_fingerprint"] else "indeterminate"
-                decision["applied"] = decision["installation_state"] == "candidate-present"
+                if installed == decision["candidate_fingerprint"]:
+                    decision["installation_state"] = "candidate-pending-recovery" if journal_phase not in (None, "committed") else "candidate-commit-pending-cleanup" if journal_phase == "committed" else "candidate-present"
+                    decision["applied"] = journal_phase in (None, "committed")
+                else:
+                    decision["installation_state"] = "baseline-present" if installed == decision["baseline_fingerprint"] else "indeterminate"
             except (OSError, ValueError):
                 decision["installation_state"] = "indeterminate"
             if args.log:

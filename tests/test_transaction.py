@@ -295,6 +295,32 @@ class TransactionTests(unittest.TestCase):
             records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(records[-1]["event"], "apply_failed")
 
+    def test_pending_recovery_is_not_logged_as_applied(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate, log = root / "current", root / "candidate", root / "apply.jsonl"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("---\nname: candidate\ndescription: test\n---\nnew\n", encoding="utf-8")
+            decision = {"promotion_ready": True, "baseline_fingerprint": tree_digest(current),
+                        "candidate_fingerprint": tree_digest(candidate), "evidence_bundle_sha256": "a" * 64, "gates": []}
+            argv = ["promote_candidate.py", "--current", str(current), "--candidate", str(candidate),
+                    "--evidence-bundle", str(root / "bundle.json"), "--apply", "--log", str(log)]
+
+            def fail_after_install(*_args, **_kwargs):
+                (current / "SKILL.md").write_bytes((candidate / "SKILL.md").read_bytes())
+                journal_path(current).write_text(json.dumps({"phase": "installed"}), encoding="utf-8")
+                raise ValueError("runtime move failed")
+
+            with patch.object(sys, "argv", argv), patch("promote_candidate.evaluate_bundle", return_value=decision), patch("promote_candidate.apply_transaction", side_effect=fail_after_install):
+                with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()):
+                    promote_main()
+            record = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+            self.assertFalse(record["applied"])
+            self.assertEqual(record["journal_phase"], "installed")
+            self.assertEqual(record["installation_state"], "candidate-pending-recovery")
+
     def test_recovery_accepts_same_aliased_parent_used_for_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -494,6 +520,27 @@ class TransactionTests(unittest.TestCase):
             self.assertEqual((current / "runs" / "evidence.json").read_text(encoding="utf-8"), "retained")
             self.assertFalse(journal_path(current).exists())
 
+    def test_success_retains_executable_caches_only_in_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+            cache = current / "scripts" / "internal" / "__pycache__"
+            cache.mkdir(parents=True)
+            (cache / "evidence.pyc").write_bytes(b"old bytecode")
+            dist = current / "scripts" / "dist"
+            dist.mkdir()
+            (dist / "payload.py").write_text("print('old')\n", encoding="utf-8")
+            backup = apply_transaction(candidate, current, tree_digest(current), tree_digest(candidate))
+            self.assertFalse((current / "scripts" / "internal" / "__pycache__").exists())
+            self.assertFalse((current / "scripts" / "dist").exists())
+            self.assertEqual((backup / "scripts" / "internal" / "__pycache__" / "evidence.pyc").read_bytes(), b"old bytecode")
+            self.assertTrue((backup / "scripts" / "dist" / "payload.py").is_file())
+            self.assertFalse(journal_path(current).exists())
+
     def test_nested_runtime_data_is_preserved_and_backup_is_clean(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -590,6 +637,74 @@ class TransactionTests(unittest.TestCase):
                 recover_transaction(current)
             self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "user edit")
             self.assertTrue(journal_path(current).exists())
+
+    def test_late_runtime_write_during_rollback_is_retained(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupt(phase: str) -> None:
+                if phase == "installed":
+                    raise RuntimeError("interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                approved_apply(candidate, current, after_phase=interrupt)
+            real_replace = os.replace
+
+            def write_before_discard(source, destination):
+                if Path(source) == current and ".promotion-discard-" in Path(destination).name:
+                    late = current / "Runs" / "late.txt"
+                    late.parent.mkdir()
+                    late.write_text("preserve", encoding="utf-8")
+                return real_replace(source, destination)
+
+            report = {}
+            with patch("internal.transaction.os.replace", side_effect=write_before_discard):
+                recover_transaction(current, report=report)
+            discarded = Path(report["retained_discard"])
+            self.assertEqual((discarded / "Runs" / "late.txt").read_text(encoding="utf-8"), "preserve")
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+
+    def test_recovery_resumes_after_displacing_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupt(phase: str) -> None:
+                if phase == "installed":
+                    raise RuntimeError("interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                approved_apply(candidate, current, after_phase=interrupt)
+            state = json.loads(journal_path(current).read_text(encoding="utf-8"))
+            backup = Path(state["backup"])
+            real_replace = os.replace
+            blocked = False
+
+            def fail_once(source, destination):
+                nonlocal blocked
+                if Path(source) == backup and Path(destination) == current and not blocked:
+                    blocked = True
+                    raise OSError("injected recovery interruption")
+                return real_replace(source, destination)
+
+            with patch("internal.transaction.os.replace", side_effect=fail_once):
+                with self.assertRaisesRegex(OSError, "injected recovery interruption"):
+                    recover_transaction(current)
+            self.assertFalse(current.exists())
+            report = {}
+            recover_transaction(current, report=report)
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+            self.assertEqual((Path(report["retained_discard"]) / "SKILL.md").read_text(encoding="utf-8"), "new")
+            self.assertFalse(journal_path(current).exists())
 
     def test_committed_cleanup_can_resume_after_partial_backup_removal(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

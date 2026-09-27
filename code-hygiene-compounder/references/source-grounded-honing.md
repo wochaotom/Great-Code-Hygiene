@@ -25,10 +25,10 @@ For source-grounded honing, promotion requires a valid honing report:
 
 ```powershell
 python scripts/validate_honing_report.py --report runs/honing-report.json
-python code-hygiene-compounder/scripts/promote_candidate.py --current path/to/installed-skill --candidate path/to/candidate-skill --evidence-bundle path/to/promotion-bundle.json --apply
+python code-hygiene-compounder/scripts/promote_candidate.py --current path/to/installed-skill --candidate path/to/candidate-skill --evidence-bundle path/to/promotion-bundle.json --apply --log path/to/promotion-audit.jsonl
 ```
 
-The bundle references a hashed honing report. The report must include activated sources, checklist results for every activated source, principles checked, PASS-100 score, a promotion decision, and source-backed lessons for promote decisions. A honing report is required for source-backed changes but does not replace model-execution or independent-review evidence.
+Keep the audit log outside both skill trees. The bundle references a hashed honing report. The report must include activated sources, checklist results for every activated source, principles checked, PASS-100 score, a promotion decision, and source-backed lessons for promote decisions. For promotion, activated IDs must be admitted in the accepted source weights; every changed source pack must be activated. An `eval-failure` tag alone is not an activated source. A honing report is required for source-backed changes but does not replace model-execution or independent-review evidence.
 
 ## Important Limits
 

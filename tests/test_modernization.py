@@ -45,6 +45,14 @@ def result(item: dict) -> dict:
 
 
 class ResultValidationTests(unittest.TestCase):
+    def test_oversized_json_integer_is_validation_error(self) -> None:
+        categories = dict(CATEGORY_KEYS)
+        categories["correctness"] = 10 ** 400
+        item = {"prompt_id": "HYG-001", "categories": categories, "total": 100,
+                "deductions": [], "lessons": [], "rubric_flags": {key: False for key in RUBRIC_CAPS}}
+        _, _, checked = validate_score_item(item, 0, {"HYG-001"}, None, None, schema_version=2)
+        self.assertTrue(any("correctness" in error for error in checked.get("_errors", [])))
+
     def test_v2_scores_reject_subpoint_precision(self) -> None:
         categories = dict(CATEGORY_KEYS)
         categories["maintainability"] = 5.0000000001
@@ -64,7 +72,7 @@ class ResultValidationTests(unittest.TestCase):
     def test_honing_report_rejects_nonfinite_scores(self) -> None:
         report = {"run_type": "source-grounded", "activated_sources": ["nist-ssdf"], "principles_checked": ["tests"], "checklist_results": [{"source_id": "nist-ssdf", "checked": ["tests"]}], "pass100_score": 90, "promotion_decision": "reject", "lessons": []}
         self.assertEqual(validate_report(report), [])
-        for score_value in (float("nan"), float("inf"), float("-inf"), True):
+        for score_value in (float("nan"), float("inf"), float("-inf"), True, 10 ** 400):
             with self.subTest(score=score_value):
                 report["pass100_score"] = score_value
                 self.assertTrue(validate_report(report))
@@ -104,6 +112,36 @@ class ResultValidationTests(unittest.TestCase):
 
 
 class PromotionPathTests(unittest.TestCase):
+    def test_bytecode_inside_verifier_tree_is_rejected_before_import(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            scripts = Path(temp) / "scripts"
+            scripts.mkdir()
+            shutil.copy2(SCRIPTS / "promote_candidate.py", scripts / "promote_candidate.py")
+            cache = scripts / "internal" / "__pycache__"
+            cache.mkdir(parents=True)
+            (cache / "evidence.pyc").write_bytes(b"untrusted bytecode")
+            completed = subprocess.run([sys.executable, "-B", str(scripts / "promote_candidate.py"), "--help"], capture_output=True, text=True)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("bytecode", completed.stderr.lower())
+
+    def test_apply_log_inside_current_tree_is_rejected_without_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            for tree in (current, candidate):
+                tree.mkdir()
+                (tree / "SKILL.md").write_text("---\nname: test\ndescription: test\n---\n", encoding="utf-8")
+            score = root / "score.json"
+            score.write_text(json.dumps({"average": 90, "promotion_ready": True}), encoding="utf-8")
+            log = current / "audit.jsonl"
+            completed = subprocess.run([sys.executable, "-B", str(SCRIPTS / "promote_candidate.py"),
+                                        "--current", str(current), "--candidate", str(candidate),
+                                        "--score", str(score), "--apply", "--log", str(log)],
+                                       capture_output=True, text=True)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("--log", completed.stderr)
+            self.assertFalse(log.exists())
+
     @unittest.skipUnless(os.name == "nt", "junctions are Windows-specific")
     def test_junction_root_is_rejected_before_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -352,10 +352,13 @@ since those files would not be installed. Each target ID binds to a
 nonempty snapshot
 artifact in the plan and execution record; hard mode needs three distinct
 snapshot hashes. The reviewer must inspect the snapshots as well as run records.
-Source-backed edits need a valid honing report in the bundle. Unavailable gates
+Source-backed edits need a valid honing report in the bundle. Its activated IDs
+must be accepted weighted sources, and every changed source pack must be named.
+Unavailable gates
 fail; they do not become implicit passes.
 
-Promotion `--apply` requires a writable `--log` path outside the candidate;
+Promotion `--apply` requires a writable `--log` path outside both the current
+and candidate trees;
 the flushed `apply_started` record precedes the directory swap. Its absence
 blocks application. The current path must be the full canonical trainer
 package, including its controlled scripts, fixtures, agents, and plugin
@@ -363,14 +366,20 @@ metadata; an isolated edition export is not a promotion baseline.
 Installation stages the candidate, verifies its fingerprint, journals the
 transaction, and swaps directories. A pending journal blocks another apply
 until `promote_candidate.py --current path/to/skill --recover` rolls back an
-incomplete swap or closes a verified commit journal. Runtime data excluded
-from promotion is moved into the new installation. The previous tree is
+incomplete swap or closes a verified commit journal. Durable run and fixture
+data excluded from promotion is moved into the new installation; bytecode,
+tool caches, and `dist` remain in the retained backup. The previous tree is
 retained at the reported `retained_backup` path even after a successful apply;
 run recovery only after the apply process has exited. Quiesce writers and
 inspect the backup before manual removal. This avoids deleting a
 late write into the old tree during automatic cleanup.
+If rollback displaces an installed candidate, recovery retains that tree at
+the reported `retained_discard` path rather than deleting possible late writes.
 If runtime data appears in both trees or remains in the backup after the move,
 the journal and backup remain intact for manual reconciliation.
+The verifier rejects local bytecode caches in its script tree before importing
+internal modules. Package validation also rejects fingerprint-excluded content
+inside any distributed trainer root; direct exports omit those paths.
 
 Claude export refuses an output directory that overlaps the skill root or an
 existing directory it did not create. Repeated exports replace only an
