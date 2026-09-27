@@ -222,7 +222,7 @@ def export_inventory(root: Path) -> dict:
         "directories": sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()),
         "files": {
             path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in sorted(root.rglob("*")) if path.is_file() and path.name != EXPORT_MARKER
+            for path in sorted(root.rglob("*")) if path.is_file() and path.relative_to(root).as_posix() != EXPORT_MARKER
         },
     }
 

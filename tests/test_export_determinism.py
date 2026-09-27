@@ -48,7 +48,7 @@ class ExportDeterminismTests(unittest.TestCase):
             second = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(hashlib.sha256((root / "smoke.zip").read_bytes()).hexdigest(), original_hash)
-            changed = root / "smoke" / "user-note.txt"
+            changed = root / "smoke" / "code-hygiene-compounder" / "references" / ".great-code-hygiene-export.json"
             changed.write_text("keep", encoding="utf-8")
             third = subprocess.run(command, capture_output=True, text=True)
             self.assertNotEqual(third.returncode, 0)
