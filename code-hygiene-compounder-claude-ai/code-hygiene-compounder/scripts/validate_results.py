@@ -5,14 +5,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime
 from pathlib import Path
 from statistics import mean
 
+from internal.policy import CATEGORY_KEYS
+from internal.policy import RUBRIC_CAPS
+from internal.policy import finite_number
+from internal.json_integrity import loads_strict
+
 sys.dont_write_bytecode = True
 
-from pass100_runner import CATEGORY_KEYS
 from pass100_runner import RUN_TYPE_EVIDENCE
 from pass100_runner import load_prompts
 
@@ -21,13 +26,21 @@ ALLOWED_RUN_TYPES = set(RUN_TYPE_EVIDENCE)
 SOURCE_ID_FALLBACKS = {"eval-failure"}
 
 
+def nonfinite_paths(value: object, path: str = "") -> list[str]:
+    if isinstance(value, float) and not math.isfinite(value):
+        return [f"{path} must be finite"]
+    if isinstance(value, dict):
+        return [error for key, child in value.items() for error in nonfinite_paths(child, f"{path}.{key}" if path else str(key))]
+    if isinstance(value, list):
+        return [error for index, child in enumerate(value) for error in nonfinite_paths(child, f"{path}[{index}]")]
+    return []
+
+
 def load_json(path: Path) -> dict:
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(
-            f"{path}: invalid JSON: {exc.msg} at line {exc.lineno} column {exc.colno}"
-        ) from exc
+        data = loads_strict(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"{path}: invalid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise SystemExit(f"{path}: expected a JSON object")
     return data
@@ -43,8 +56,8 @@ def load_source_ids(path: Path | None) -> set[str] | None:
     if path is None or not path.exists():
         return None
     try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
+        payload = loads_strict(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
         raise SystemExit(f"{path}: invalid source weights JSON: {exc}") from exc
     weights = payload.get("weights")
     if not isinstance(weights, list):
@@ -134,8 +147,7 @@ def validate_optional_number(
     if key not in item:
         return
     value = item[key]
-    expected = int if integer else (int, float)
-    if not isinstance(value, expected) or isinstance(value, bool) or value < 0:
+    if not finite_number(value, integer=integer, nonnegative=True):
         kind = "non-negative integer" if integer else "non-negative number"
         errors.append(f"{label}.{key} must be a {kind}")
 
@@ -146,6 +158,7 @@ def validate_score_item(
     declared_prompt_ids: set[str],
     known_prompt_ids: set[str] | None,
     source_ids: set[str] | None,
+    schema_version: int = 1,
 ) -> tuple[str | None, float | None, dict[str, float]]:
     errors: list[str] = []
     label = f"scores[{index}]"
@@ -176,23 +189,28 @@ def validate_score_item(
             errors.append(f"{label}.categories has unknown keys: {', '.join(extra)}")
         for key, maximum in CATEGORY_KEYS.items():
             value = categories.get(key)
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
+            if not finite_number(value):
                 errors.append(f"{label}.categories.{key} must be numeric")
                 continue
             if value < 0 or value > maximum:
                 errors.append(f"{label}.categories.{key}={value} outside 0..{maximum}")
+            if schema_version == 2 and float(value) * 2 != int(float(value) * 2):
+                errors.append(f"{label}.categories.{key} must use half-point increments")
             category_values[key] = float(value)
 
     total = item.get("total")
     numeric_total: float | None = None
-    if not isinstance(total, (int, float)) or isinstance(total, bool):
+    if not finite_number(total):
         errors.append(f"{label}.total must be numeric")
     else:
         numeric_total = float(total)
         if numeric_total < 0 or numeric_total > 100:
             errors.append(f"{label}.total={total} outside 0..100")
-        subtotal = sum(category_values.values())
-        if len(category_values) == len(CATEGORY_KEYS) and abs(numeric_total - subtotal) > 0.01:
+        if schema_version == 2 and numeric_total * 2 != int(numeric_total * 2):
+            errors.append(f"{label}.total must use half-point increments")
+        subtotal = math.fsum(category_values[key] for key in CATEGORY_KEYS if key in category_values)
+        tolerance = 1e-9 if schema_version == 2 else 0.01
+        if len(category_values) == len(CATEGORY_KEYS) and abs(numeric_total - subtotal) > tolerance:
             errors.append(f"{label}.total {total} does not match category sum {subtotal:g}")
 
     deductions = item.get("deductions")
@@ -202,6 +220,16 @@ def validate_score_item(
     if numeric_total is not None and numeric_total < 100:
         if not isinstance(deductions, list) or not deductions:
             errors.append(f"{label}.deductions must explain any score below 100")
+    if schema_version == 2:
+        flags = item.get("rubric_flags")
+        if not isinstance(flags, dict) or set(flags) != set(RUBRIC_CAPS):
+            errors.append(f"{label}.rubric_flags must declare every rubric cap")
+        elif any(not isinstance(flag, bool) for flag in flags.values()):
+            errors.append(f"{label}.rubric_flags values must be boolean")
+        elif numeric_total is not None:
+            active_caps = [limit for key, limit in RUBRIC_CAPS.items() if flags[key]]
+            if active_caps and numeric_total > min(active_caps):
+                errors.append(f"{label}.total exceeds triggered rubric cap {min(active_caps)}")
 
     anchor_count = validate_source_anchors(
         item.get("source_anchors"),
@@ -232,8 +260,12 @@ def validate_payload(
     known_prompt_ids: set[str] | None = None,
     source_ids: set[str] | None = None,
 ) -> tuple[list[str], list[str]]:
-    errors: list[str] = []
+    errors: list[str] = nonfinite_paths(payload)
     warnings: list[str] = []
+    schema_version = payload.get("schema_version", 1)
+    if schema_version not in (1, 2) or isinstance(schema_version, bool):
+        errors.append("schema_version must be 1 or 2")
+        schema_version = 1
 
     if not is_non_empty_string(payload.get("run_id")):
         errors.append("run_id must be a non-empty string")
@@ -272,6 +304,7 @@ def validate_payload(
             declared_prompt_ids,
             known_prompt_ids,
             source_ids,
+            schema_version,
         )
         item_errors = category_values.pop("_errors", [])
         errors.extend(item_errors)
@@ -300,6 +333,19 @@ def validate_payload(
             warnings.append("model-execution runs should record model")
         if not is_non_empty_string(payload.get("skill_version")):
             warnings.append("model-execution runs should record skill_version")
+    if schema_version == 2:
+        for key in ("target_id", "arm", "model", "harness"):
+            if not is_non_empty_string(payload.get(key)):
+                errors.append(f"{key} is required for v2 results")
+        if payload.get("arm") not in ("baseline", "candidate"):
+            errors.append("arm must be baseline or candidate")
+        trial = payload.get("trial")
+        if not isinstance(trial, int) or isinstance(trial, bool) or trial < 1:
+            errors.append("trial must be a positive integer")
+        if not isinstance(payload.get("runtime"), dict):
+            errors.append("runtime identity is required for v2 results")
+        if started is None or completed is None:
+            errors.append("started_at and completed_at are required for v2 results")
 
     if totals:
         average = mean(totals)
@@ -322,7 +368,7 @@ def validation_summary(
     totals = [
         float(item["total"])
         for item in score_items
-        if isinstance(item, dict) and isinstance(item.get("total"), (int, float))
+        if isinstance(item, dict) and finite_number(item.get("total"))
     ]
     return {
         "result": str(path),

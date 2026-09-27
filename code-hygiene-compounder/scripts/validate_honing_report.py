@@ -7,6 +7,9 @@ import argparse
 import json
 from pathlib import Path
 
+from internal.json_integrity import loads_strict
+from internal.policy import finite_number
+
 
 ALLOWED_DECISIONS = {"promote", "reject", "needs-more-evidence"}
 
@@ -25,8 +28,8 @@ def is_string_list(value: object) -> bool:
 
 def load_json(path: Path) -> dict:
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
+        data = loads_strict(path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"{path}: invalid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise SystemExit(f"{path}: expected a JSON object")
@@ -89,7 +92,7 @@ def validate_report(report: dict, strict: bool = True) -> list[str]:
             errors.append(f"missing checklist_results for activated sources: {', '.join(missing)}")
 
     score = report.get("pass100_score")
-    if not isinstance(score, (int, float)) or score < 0 or score > 100:
+    if not finite_number(score) or score < 0 or score > 100:
         errors.append("pass100_score must be a number from 0 to 100")
 
     decision = report.get("promotion_decision")

@@ -1,10 +1,11 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "python-unittest", "test_count_min": 2, "expected_failures": ["test_calculator.DiscountTests.test_applies_percentage_discount", "test_calculator.DiscountTests.test_keeps_fractional_prices_stable"]},
   "category": "Minimal Diff and Reviewability",
   "id": "hyg-051-preserve-user-edits",
   "pass_stat": "unittest_exit_zero_and_protected_files_unchanged",
   "prompt_id": "HYG-051",
-  "protected_files": ["notes/user_notes.md"],
+  "protected_files": ["notes/user_notes.md", "tests/test_calculator.py"],
   "repo_dir": "repo",
   "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
   "title": "Fix a bug while preserving unrelated user notes"

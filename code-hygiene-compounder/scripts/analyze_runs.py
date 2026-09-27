@@ -32,8 +32,7 @@ def normal_mean_interval(values: list[float], lower_bound: float, upper_bound: f
     if not values:
         return {"low": None, "high": None, "method": "normal-approximation-95"}
     if len(values) == 1:
-        value = round(values[0], 2)
-        return {"low": value, "high": value, "method": "single-sample"}
+        return {"low": None, "high": None, "method": "insufficient-samples"}
     margin = 1.96 * stdev(values) / math.sqrt(len(values))
     return {
         "low": round(max(lower_bound, mean(values) - margin), 2),
@@ -43,8 +42,8 @@ def normal_mean_interval(values: list[float], lower_bound: float, upper_bound: f
 
 
 def wilson_interval(successes: int, count: int) -> dict:
-    if count <= 0:
-        return {"low": None, "high": None, "method": "wilson-95"}
+    if count <= 1:
+        return {"low": None, "high": None, "method": "insufficient-samples"}
     z = 1.96
     phat = successes / count
     denominator = 1 + z**2 / count
@@ -85,6 +84,11 @@ def summarize_scores(scores: list[dict], threshold: float) -> dict:
     category_averages = {
         key: round(mean(values), 2) if values else None for key, values in category_values.items()
     }
+    measures = {}
+    for key in ("duration_ms", "input_tokens", "output_tokens", "cost_usd"):
+        values = [item.get(key) for item in scores]
+        complete = bool(values) and all(isinstance(value, (int, float)) and math.isfinite(value) and not isinstance(value, bool) for value in values)
+        measures[key] = {"available": complete, "total": sum(values) if complete else None}
     category_confidence = {
         key: normal_mean_interval(values, 0.0, float(CATEGORY_KEYS[key]))
         for key, values in category_values.items()
@@ -106,6 +110,7 @@ def summarize_scores(scores: list[dict], threshold: float) -> dict:
         else None,
         "category_averages": category_averages,
         "category_mean_ci": category_confidence,
+        "measurements": measures,
         "low_scores": [
             {
                 "prompt_id": item.get("prompt_id"),
@@ -162,6 +167,76 @@ def compare_summaries(current: dict, baseline: dict, margin: float) -> dict:
     }
 
 
+def compare_paired_runs(current: list[dict], baseline: list[dict], plan: dict) -> tuple[dict | None, list[str]]:
+    errors: list[str] = []
+    targets = plan.get("target_ids")
+    trials = plan.get("trial_count")
+    prompts = plan.get("prompt_ids")
+    critical = plan.get("critical_prompt_ids")
+    if (not isinstance(targets, list) or not targets or any(not isinstance(item, str) or not item for item in targets)
+            or len(set(targets)) != len(targets) or not isinstance(trials, int) or isinstance(trials, bool) or trials < 1
+            or not isinstance(prompts, list) or not prompts or any(not isinstance(item, str) or not item for item in prompts)
+            or len(set(prompts)) != len(prompts) or not isinstance(critical, list) or not critical
+            or any(not isinstance(item, str) or not item for item in critical) or not set(critical).issubset(prompts)):
+        return None, ["plan must predeclare unique targets, trials, prompts, and critical prompts"]
+    expected = {(target, trial) for target in targets for trial in range(1, trials + 1)}
+
+    def index(payloads: list[dict], arm: str) -> dict[tuple, dict]:
+        indexed: dict[tuple, dict] = {}
+        for payload in payloads:
+            key = (payload.get("target_id"), payload.get("trial"))
+            if payload.get("schema_version") != 2 or payload.get("arm") != arm or payload.get("run_type") != "model-execution":
+                errors.append(f"{arm} contains non-v2 or non-model result")
+            if key in indexed:
+                errors.append(f"duplicate {arm} trial: {key}")
+            indexed[key] = payload
+        if set(indexed) != expected:
+            errors.append(f"{arm} target/trial set differs from plan")
+        return indexed
+
+    before = index(baseline, "baseline")
+    after = index(current, "candidate")
+    if errors:
+        return None, errors
+    deltas: list[float] = []
+    target_deltas: dict[str, list[float]] = {target: [] for target in targets}
+    attempts: list[dict] = []
+    critical_regressions: list[str] = []
+    for key in sorted(expected):
+        old, new = before[key], after[key]
+        if any(old.get(field) != new.get(field) for field in ("model", "harness", "runtime", "phase")):
+            errors.append(f"configuration differs in pair {key}")
+            continue
+        old_scores = {item["prompt_id"]: item for item in old["scores"]}
+        new_scores = {item["prompt_id"]: item for item in new["scores"]}
+        if set(old_scores) != set(new_scores) or set(old_scores) != set(prompts):
+            errors.append(f"prompt set differs in pair {key}")
+            continue
+        for prompt_id in sorted(old_scores):
+            prior, latest = old_scores[prompt_id], new_scores[prompt_id]
+            delta = float(latest["total"]) - float(prior["total"])
+            deltas.append(delta)
+            target_deltas[key[0]].append(delta)
+            attempts.append({"target_id": key[0], "trial": key[1], "prompt_id": prompt_id, "baseline": prior["total"], "candidate": latest["total"], "delta": delta})
+            if prompt_id in critical:
+                for category in CRITICAL_CATEGORIES:
+                    if latest["categories"][category] < prior["categories"][category]:
+                        critical_regressions.append(f"{key}/{prompt_id}/{category}")
+    if errors or not deltas:
+        return None, errors or ["no matched scores"]
+    average_delta = mean(deltas)
+    return {
+        "paired_count": len(deltas),
+        "paired_deltas": attempts,
+        "average_delta": round(average_delta, 2),
+        "delta_ci": normal_mean_interval([mean(target_deltas[target]) for target in targets], -100.0, 100.0),
+        "uncertainty_unit": "target",
+        "independent_units": len(targets),
+        "critical_regressions": critical_regressions,
+        "regression_detected": average_delta < 0 or bool(critical_regressions),
+    }, []
+
+
 def table_row(metric: str, expected: object, actual: object, status: str, artifact: str) -> dict:
     return {
         "metric": metric,
@@ -212,11 +287,20 @@ def build_summary_table(analysis: dict, threshold: float) -> list[dict]:
                 "baseline regression",
                 "no critical regression",
                 "regression" if comparison.get("regression_detected") else "no regression",
-                "fail" if comparison.get("regression_detected") else "pass",
+                "diagnostic" if comparison.get("eligibility", "").startswith("diagnostic-only") else "fail" if comparison.get("regression_detected") else "pass",
                 str(analysis.get("baseline", {}).get("result")),
             )
         )
     return rows
+
+
+def cohort_key(payload: dict) -> tuple:
+    return (
+        payload.get("run_type"), payload.get("schema_version", 1), payload.get("phase"),
+        payload.get("model"), payload.get("harness"),
+        json.dumps(payload.get("runtime"), sort_keys=True),
+        tuple(sorted(payload.get("prompt_ids", []))),
+    )
 
 
 def load_valid_payloads(
@@ -228,9 +312,21 @@ def load_valid_payloads(
     source_ids = load_source_ids(source_weights)
     payloads: list[dict] = []
     validations: list[dict] = []
+    seen_ids: set[str] = set()
+    cohort: tuple | None = None
     for path in paths:
         payload = load_json(path)
         errors, warnings = validate_payload(payload, known_prompt_ids, source_ids)
+        run_id = payload.get("run_id")
+        if run_id in seen_ids:
+            errors.append(f"duplicate run_id: {run_id}")
+        if isinstance(run_id, str):
+            seen_ids.add(run_id)
+        current_cohort = cohort_key(payload)
+        if cohort is None:
+            cohort = current_cohort
+        elif current_cohort != cohort:
+            errors.append("mixed run cohort: type, schema, phase, model, harness, runtime, and prompts must match")
         validations.append(
             {
                 "result": str(path),
@@ -250,11 +346,12 @@ def load_valid_payloads(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Analyze PASS-100 run results.")
     parser.add_argument("--results", type=Path, nargs="+", required=True)
-    parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--baseline", type=Path, nargs="+")
+    parser.add_argument("--plan", type=Path, help="Predeclared target/trial plan for paired model-execution comparison.")
     parser.add_argument("--suite", type=Path)
     parser.add_argument("--source-weights", type=Path)
     parser.add_argument("--threshold", type=float, default=85.0)
-    parser.add_argument("--regression-margin", type=float, default=0.5)
+    parser.add_argument("--regression-margin", type=float, default=0.0)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--log", type=Path)
     return parser
@@ -276,16 +373,17 @@ def main() -> None:
         "validations": validations,
         "statistics_note": (
             "PASS-100 score intervals use a 95% normal approximation; pass/resolved "
-            "rates use a 95% Wilson interval."
+            "rates use a 95% Wilson interval. Paired-delta intervals use target-level means."
         ),
         "aggregate": summarize_scores(collect_scores(payloads), args.threshold) if payloads else None,
         "baseline": None,
         "comparison": None,
+        "comparison_errors": [],
     }
 
     if args.baseline:
         baseline_payloads, baseline_validations = load_valid_payloads(
-            [args.baseline],
+            args.baseline,
             args.suite,
             source_weights,
         )
@@ -295,17 +393,24 @@ def main() -> None:
             else None
         )
         analysis["baseline"] = {
-            "result": str(args.baseline),
+            "result": ", ".join(str(path) for path in args.baseline),
+            "results": [str(path) for path in args.baseline],
             "validations": baseline_validations,
             "aggregate": baseline_summary,
         }
         analysis["valid"] = analysis["valid"] and all(item["valid"] for item in baseline_validations)
-        if analysis["aggregate"] and baseline_summary:
-            analysis["comparison"] = compare_summaries(
-                analysis["aggregate"],
-                baseline_summary,
-                args.regression_margin,
-            )
+        if payloads and baseline_payloads and cohort_key(payloads[0]) != cohort_key(baseline_payloads[0]):
+            analysis["comparison_errors"].append("current and baseline cohorts differ in run type, schema, phase, model, harness, runtime, or prompts")
+            analysis["valid"] = False
+        elif args.plan:
+            plan = load_json(args.plan)
+            comparison, pair_errors = compare_paired_runs(payloads, baseline_payloads, plan)
+            analysis["comparison"] = comparison
+            analysis["pair_errors"] = pair_errors
+            analysis["valid"] = analysis["valid"] and not pair_errors
+        elif analysis["aggregate"] and baseline_summary:
+            analysis["comparison"] = compare_summaries(analysis["aggregate"], baseline_summary, args.regression_margin)
+            analysis["comparison"]["eligibility"] = "diagnostic-only; no predeclared paired plan"
 
     analysis["summary_table"] = build_summary_table(analysis, args.threshold)
 

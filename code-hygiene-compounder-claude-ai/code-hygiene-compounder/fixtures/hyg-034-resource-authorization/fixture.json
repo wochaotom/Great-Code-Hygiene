@@ -1,5 +1,6 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "python-unittest", "test_count_min": 5, "expected_failures": ["test_authz.ResourceAuthorizationTests.test_cross_tenant_admin_rejected", "test_authz.ResourceAuthorizationTests.test_cross_tenant_owner_rejected", "test_authz.ResourceAuthorizationTests.test_missing_tenant_context_fails_closed"]},
   "category": "Security and Data Safety",
   "id": "hyg-034-resource-authorization",
   "pass_stat": "unittest_exit_zero_and_protected_files_unchanged",

@@ -10,7 +10,7 @@
   ],
   "properties": {
     "version": {
-      "const": "1"
+      "const": "2"
     },
     "generated_at": {
       "type": "string"
@@ -29,8 +29,7 @@
           "read_when",
           "sha256",
           "lines",
-          "words",
-          "sections"
+          "words"
         ],
         "properties": {
           "path": {
@@ -62,45 +61,6 @@
           "words": {
             "type": "integer",
             "minimum": 0
-          },
-          "sections": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "heading",
-                "lines",
-                "domains"
-              ],
-              "properties": {
-                "heading": {
-                  "type": "string"
-                },
-                "lines": {
-                  "type": "array",
-                  "prefixItems": [
-                    {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    {
-                      "type": "integer",
-                      "minimum": 1
-                    }
-                  ],
-                  "items": false,
-                  "minItems": 2,
-                  "maxItems": 2
-                },
-                "domains": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              },
-              "additionalProperties": false
-            }
           }
         },
         "additionalProperties": false

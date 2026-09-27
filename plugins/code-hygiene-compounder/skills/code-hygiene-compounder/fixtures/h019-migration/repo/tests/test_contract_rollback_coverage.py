@@ -2,6 +2,8 @@ import ast
 from pathlib import Path
 import unittest
 
+from app.migration import forward, rollback
+
 
 class RollbackCoverageContract(unittest.TestCase):
     def test_migration_tests_include_real_rollback_behavior(self):
@@ -9,38 +11,49 @@ class RollbackCoverageContract(unittest.TestCase):
         source = test_file.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(test_file))
 
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        for suite in tree.body:
+            if not isinstance(suite, ast.ClassDef):
                 continue
-            if not node.name.startswith("test"):
-                continue
-            test_source = ast.get_source_segment(source, node) or ""
-            if not self._calls_rollback(node):
-                continue
-            if self._asserts_removed_column(node, test_source):
+            for node in suite.body:
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or not node.name.startswith("test"):
+                    continue
+                test_source = ast.get_source_segment(source, node) or ""
+                rollback_line = self._rollback_after_forward_line(node)
+                if rollback_line is None or not self._asserts_removed_column(node, test_source, rollback_line):
+                    continue
+                schema = {"columns": ["id"]}
+                forward(schema, "email")
+                self.assertIn("email", schema["columns"])
+                rollback(schema, "email")
+                self.assertNotIn("email", schema["columns"])
                 return
 
         self.fail(
             "Add a rollback behavior test to tests/test_migration.py that calls "
-            "rollback(...) and asserts the rolled-back column is removed from "
+            "forward(...) before rollback(...) and then asserts the column is removed from "
             "schema['columns']; do not edit this protected contract test."
         )
 
-    def _calls_rollback(self, node):
+    def _rollback_after_forward_line(self, node):
+        forward_lines = []
+        rollback_lines = []
         for child in ast.walk(node):
             if not isinstance(child, ast.Call):
                 continue
             func = child.func
-            if isinstance(func, ast.Name) and func.id == "rollback":
-                return True
-            if isinstance(func, ast.Attribute) and func.attr == "rollback":
-                return True
-        return False
+            name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+            if name == "forward":
+                forward_lines.append(child.lineno)
+            elif name == "rollback":
+                rollback_lines.append(child.lineno)
+        return min((line for line in rollback_lines if any(prior < line for prior in forward_lines)), default=None)
 
-    def _asserts_removed_column(self, node, source):
+    def _asserts_removed_column(self, node, source, rollback_line):
         if "schema" not in source or "columns" not in source:
             return False
         for child in ast.walk(node):
+            if getattr(child, "lineno", 0) <= rollback_line:
+                continue
             if isinstance(child, ast.Assert):
                 if self._is_not_in_schema_columns_compare(child.test):
                     return True

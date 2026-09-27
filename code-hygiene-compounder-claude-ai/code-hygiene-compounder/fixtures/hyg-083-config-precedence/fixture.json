@@ -1,10 +1,11 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "python-unittest", "test_count_min": 4, "expected_failures": ["test_config.ConfigTests.test_environment_overrides_file_config", "test_config.ConfigTests.test_environment_overrides_file_endpoint"]},
   "category": "Dependency and Config Hygiene",
   "id": "hyg-083-config-precedence",
   "pass_stat": "unittest_exit_zero",
   "prompt_id": "HYG-083",
-  "protected_files": [],
+  "protected_files": ["tests/test_config.py"],
   "repo_dir": "repo",
   "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
   "title": "Fix environment variable precedence without breaking defaults"

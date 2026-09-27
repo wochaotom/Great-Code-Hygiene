@@ -6,15 +6,22 @@ import fnmatch
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 sys.dont_write_bytecode = True
+from internal.package_meta import PACKAGE_DIRS
+from internal.package_meta import FUNCTION_ONLY_DIR, RUNTIME_EDITIONS, SKELETON_DIR
+from internal.package_meta import PLUGIN_VERSION
+from internal.evidence import unsafe_link
 from export_claude_package import COMMAND_TEXT
 from export_claude_package import EXCLUDED_NAMES
 from export_claude_package import build_portable_prompt
+from export_claude_package import install_text
 from export_claude_package import read_skill_text
+from export_claude_package import reject_export_links
 from source_audit_plan import context_index_errors
-PACKAGE_DIRS = {'codex_skill': Path('code-hygiene-compounder'), 'codex_plugin_skill': Path('plugins/code-hygiene-compounder/skills/code-hygiene-compounder'), 'claude_ai_skill': Path('code-hygiene-compounder-claude-ai/code-hygiene-compounder'), 'claude_command_package': Path('code-hygiene-compounder-command/.claude/code-hygiene-compounder')}
 EXPECTED_NATIVE_AI_SKILL_FILES = {Path('.agents/skills/code-hygiene/SKILL.md'), Path('.cursor/skills/code-hygiene/SKILL.md')}
 EXPECTED_SKILL_FILES = {Path('code-hygiene/SKILL.md'), Path('code-hygiene-skeleton/SKILL.md'), Path('code-hygiene-compounder/SKILL.md'), Path('code-hygiene-compounder-claude-ai/code-hygiene-compounder/SKILL.md'), Path('plugins/code-hygiene-compounder/skills/code-hygiene-compounder/SKILL.md')} | EXPECTED_NATIVE_AI_SKILL_FILES
 EXPECTED_COMMAND_FILES = {Path('code-hygiene-compounder-command/.claude/commands/code-hygiene.md')}
@@ -28,7 +35,6 @@ EXPECTED_CONTEXT_FILES = {Path('code-hygiene-compounder/references/context-index
 MARKETPLACE_NAME = 'great-code-hygiene'
 PLUGIN_NAME = 'code-hygiene-compounder'
 CODEX_PLUGIN_SOURCE = './plugins/code-hygiene-compounder'
-PLUGIN_VERSION = '0.2.0'
 PLUGIN_SOURCE = './code-hygiene-compounder'
 PLUGIN_REPOSITORY = 'https://github.com/wochaotom/Great-Code-Hygiene'
 MAX_RELATIVE_PATH_LENGTH = 140
@@ -40,7 +46,7 @@ COMMAND_REQUIRED_SNIPPETS = ('smallest deterministic feedback loop', 'evidence-r
 CACHE_DIR_NAMES = {'__pycache__', '.pytest_cache', '.mypy_cache'}
 GENERATED_FILE_PATTERNS = ('*.zip', '*.pyc', '*.pyo')
 ALWAYS_SKIP_DIR_NAMES = {'.git', 'dist', '.fixture-tmp', '.fixture-work'}
-SYNC_SKIP_NAMES = EXCLUDED_NAMES | {'.claude-plugin'}
+SYNC_SKIP_NAMES = EXCLUDED_NAMES
 def as_repo_path(path: Path, repo_root: Path) -> str:
     try:
         return path.relative_to(repo_root).as_posix()
@@ -51,7 +57,7 @@ def normalize_relative(path: Path, repo_root: Path) -> Path:
 def iter_visible_files(root: Path) -> list[Path]:
     files: list[Path] = []
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES]
+        dirnames[:] = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES or (name == 'dist' and Path(current) != root)]
         current_path = Path(current)
         for filename in filenames:
             files.append(current_path / filename)
@@ -59,7 +65,7 @@ def iter_visible_files(root: Path) -> list[Path]:
 def iter_visible_dirs(root: Path) -> list[Path]:
     dirs: list[Path] = []
     for current, dirnames, _filenames in os.walk(root):
-        visible = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES]
+        visible = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES or (name == 'dist' and Path(current) != root)]
         dirnames[:] = visible
         current_path = Path(current)
         dirs.extend((current_path / name for name in visible))
@@ -72,11 +78,11 @@ def file_digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(65536), b''):
             digest.update(chunk)
     return digest.hexdigest()
-def tree_fingerprint(root: Path) -> dict[str, str]:
+def tree_fingerprint(root: Path, skip_root_claude_plugin: bool = False) -> dict[str, str]:
     files: dict[str, str] = {}
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [name for name in dirnames if name not in SYNC_SKIP_NAMES and name not in ALWAYS_SKIP_DIR_NAMES]
         current_path = Path(current)
+        dirnames[:] = [name for name in dirnames if name not in SYNC_SKIP_NAMES and not (skip_root_claude_plugin and current_path == root and name == '.claude-plugin')]
         for filename in filenames:
             path = current_path / filename
             relative = path.relative_to(root)
@@ -190,11 +196,10 @@ def check_entrypoint_content(repo_root: Path, reporter: Reporter) -> None:
         path = repo_root / relative
         if not path.is_file():
             continue
-        text = read_text(path)
-        if 'Exported at' in text:
-            reporter.fail_check('install text', f'{relative.as_posix()} contains non-deterministic export timestamp')
+        if path.read_bytes() != install_text('legacy-command').encode('utf-8'):
+            reporter.fail_check('install text', f'{relative.as_posix()} differs from the approved install text')
         else:
-            reporter.pass_check('install text', f'{relative.as_posix()} is deterministic')
+            reporter.pass_check('install text', f'{relative.as_posix()} matches the approved install text')
 def load_json(path: Path, repo_root: Path, label: str, reporter: Reporter) -> dict | None:
     try:
         payload = json.loads(path.read_text(encoding='utf-8-sig'))
@@ -215,17 +220,22 @@ def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None
     if marketplace is None or manifest is None:
         return
     plugins = marketplace.get('plugins')
-    matching = [item for item in plugins or [] if isinstance(item, dict) and item.get('name') == PLUGIN_NAME]
+    matching = [item for item in plugins if isinstance(item, dict) and item.get('name') == PLUGIN_NAME] if isinstance(plugins, list) else []
     errors: list[str] = []
     owner = marketplace.get('owner')
+    expect(errors, set(marketplace) != {'name', 'description', 'owner', 'plugins'}, 'marketplace has unreviewed fields')
+    expect(errors, isinstance(owner, dict) and set(owner) != {'name'}, 'marketplace owner has unreviewed fields')
     expect(errors, marketplace.get('name') != MARKETPLACE_NAME, f'marketplace name must be {MARKETPLACE_NAME}')
     expect(errors, not isinstance(owner, dict) or not owner.get('name'), 'marketplace owner.name is required')
-    expect(errors, not isinstance(plugins, list) or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
+    expect(errors, not isinstance(plugins, list) or len(plugins) != 1 or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
     if matching:
+        expect(errors, set(matching[0]) != {'name', 'version', 'source', 'description', 'author', 'repository', 'keywords'}, 'marketplace plugin has unreviewed fields')
         expect(errors, matching[0].get('source') != PLUGIN_SOURCE, f'{PLUGIN_NAME} source must be {PLUGIN_SOURCE}')
     expect(errors, any((isinstance(item, dict) and item.get('version') != PLUGIN_VERSION for item in matching)), f'marketplace plugin version must be {PLUGIN_VERSION}')
     for key, value in {'name': PLUGIN_NAME, 'repository': PLUGIN_REPOSITORY, 'skills': ['./'], 'agents': []}.items():
         expect(errors, manifest.get(key) != value, f'plugin manifest {key} must be {value}')
+    expect(errors, set(manifest) != {'name', 'version', 'description', 'author', 'repository', 'keywords', 'skills', 'agents'}, 'plugin manifest has unreviewed fields')
+    expect(errors, isinstance(manifest.get('author'), dict) and set(manifest['author']) != {'name'}, 'plugin manifest author has unreviewed fields')
     expect(errors, manifest.get('version') != PLUGIN_VERSION, f'plugin manifest version must be {PLUGIN_VERSION}')
     if errors:
         reporter.fail_check('Claude plugin marketplace', '; '.join(errors))
@@ -241,16 +251,22 @@ def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
     if marketplace is None or manifest is None:
         return
     plugins = marketplace.get('plugins')
-    matching = [item for item in plugins or [] if isinstance(item, dict) and item.get('name') == PLUGIN_NAME]
+    matching = [item for item in plugins if isinstance(item, dict) and item.get('name') == PLUGIN_NAME] if isinstance(plugins, list) else []
     errors: list[str] = []
+    expect(errors, set(marketplace) != {'name', 'interface', 'plugins'}, 'marketplace has unreviewed fields')
+    expect(errors, isinstance(marketplace.get('interface'), dict) and set(marketplace['interface']) != {'displayName'}, 'marketplace interface has unreviewed fields')
     expect(errors, marketplace.get('name') != MARKETPLACE_NAME, f'marketplace name must be {MARKETPLACE_NAME}')
     expect(errors, not isinstance(marketplace.get('interface'), dict) or not marketplace['interface'].get('displayName'), 'marketplace interface.displayName is required')
-    expect(errors, not isinstance(plugins, list) or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
+    expect(errors, not isinstance(plugins, list) or len(plugins) != 1 or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
     if matching:
         entry = matching[0]
+        expect(errors, set(entry) != {'name', 'source', 'policy', 'category'}, 'marketplace plugin has unreviewed fields')
         for key, value in {'source': {'source': 'local', 'path': CODEX_PLUGIN_SOURCE}, 'policy': {'installation': 'AVAILABLE', 'authentication': 'ON_INSTALL'}, 'category': 'Coding'}.items():
             expect(errors, entry.get(key) != value, f'marketplace {key} is invalid')
     interface = manifest.get('interface')
+    expect(errors, set(manifest) != {'name', 'version', 'description', 'author', 'homepage', 'repository', 'keywords', 'skills', 'interface'}, 'plugin manifest has unreviewed fields')
+    expect(errors, isinstance(manifest.get('author'), dict) and set(manifest['author']) != {'name', 'url'}, 'plugin manifest author has unreviewed fields')
+    expect(errors, isinstance(interface, dict) and set(interface) != {'displayName', 'shortDescription', 'longDescription', 'developerName', 'category', 'capabilities', 'websiteURL', 'defaultPrompt', 'brandColor'}, 'plugin manifest interface has unreviewed fields')
     for key, value in {'name': PLUGIN_NAME, 'version': PLUGIN_VERSION, 'repository': PLUGIN_REPOSITORY, 'skills': './skills/'}.items():
         expect(errors, manifest.get(key) != value, f'plugin manifest {key} is invalid')
     expect(errors, not isinstance(interface, dict) or interface.get('displayName') != 'Code Hygiene Compounder', 'plugin manifest interface.displayName is required')
@@ -297,6 +313,23 @@ def check_generated_artifacts(repo_root: Path, allow_runs: bool, reporter: Repor
         reporter.fail_check('generated directories', f'remove generated directories: {detail}')
     else:
         reporter.pass_check('generated directories', 'no cache or run directories found')
+
+
+def check_excluded_package_content(repo_root: Path, reporter: Reporter) -> None:
+    excluded = {name.casefold() for name in EXCLUDED_NAMES}
+    found: list[str] = []
+    for relative in PACKAGE_DIRS.values():
+        root = repo_root / relative
+        if not root.is_dir():
+            continue
+        for current, dirs, files in os.walk(root):
+            for name in dirs + files:
+                if name.casefold() in excluded:
+                    found.append(as_repo_path(Path(current) / name, repo_root))
+    if found:
+        reporter.fail_check('excluded package content', 'unreviewed excluded paths: ' + ', '.join(sorted(found)))
+    else:
+        reporter.pass_check('excluded package content', 'no fingerprint-excluded paths inside package roots')
 def check_source_packs(codex_root: Path, reporter: Reporter) -> None:
     weights_path = codex_root / 'references' / 'source-weights.json'
     packs_dir = codex_root / 'references' / 'source-packs'
@@ -364,11 +397,11 @@ def check_context_index(codex_root: Path, reporter: Reporter) -> None:
     errors = context_index_errors(codex_root, existing)
     detail = '; '.join(errors[:8]) if errors else f'{len(existing.get("files", []))} indexed files are current'
     (reporter.fail_check if errors else reporter.pass_check)('context index', detail)
-def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter) -> None:
+def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter, skip_source_root_claude_plugin: bool = False) -> None:
     if not source.is_dir() or not target.is_dir():
         reporter.fail_check(label, 'source or target directory is missing')
         return
-    source_files = tree_fingerprint(source)
+    source_files = tree_fingerprint(source, skip_source_root_claude_plugin)
     target_files = tree_fingerprint(target)
     missing = sorted(set(source_files) - set(target_files))
     extra = sorted(set(target_files) - set(source_files))
@@ -384,11 +417,57 @@ def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter) 
         reporter.fail_check(label, '; '.join(details))
     else:
         reporter.pass_check(label, f'{len(source_files)} files match')
+def check_edition_root(root: Path, expected: set[str], label: str, reporter: Reporter) -> None:
+    if not root.is_dir():
+        reporter.fail_check(label, f'missing edition root: {root}')
+        return
+    actual = {path.name for path in root.iterdir()}
+    if actual != expected:
+        reporter.fail_check(label, f'root entries differ: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}')
+    else:
+        reporter.pass_check(label, 'edition root contains only declared entries')
+
+
+def check_edition_links(repo_root: Path, reporter: Reporter) -> bool:
+    for path in iter_visible_files(repo_root) + iter_visible_dirs(repo_root):
+        if unsafe_link(path):
+            reporter.fail_check('package links', f'unsafe link: {as_repo_path(path, repo_root)}')
+            return False
+    edition_paths = dict(PACKAGE_DIRS)
+    edition_paths.update(clean=FUNCTION_ONLY_DIR, skeleton=SKELETON_DIR)
+    edition_paths.update(
+        claude_ai_wrapper=Path('code-hygiene-compounder-claude-ai'),
+        claude_command_wrapper=Path('code-hygiene-compounder-command'),
+        codex_plugin_wrapper=Path('plugins/code-hygiene-compounder'),
+    )
+    for label, relative in edition_paths.items():
+        root = repo_root / relative
+        try:
+            reject_export_links(root)
+        except (OSError, ValueError) as exc:
+            reporter.fail_check(f'{label} links', str(exc))
+            return False
+    return True
+
+
 def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
     codex_root = repo_root / PACKAGE_DIRS['codex_skill']
     codex_plugin_root = repo_root / PACKAGE_DIRS['codex_plugin_skill']
     claude_ai_root = repo_root / PACKAGE_DIRS['claude_ai_skill']
     command_root = repo_root / PACKAGE_DIRS['claude_command_package']
+    wrapper_layouts = {
+        'Claude AI wrapper': ('code-hygiene-compounder-claude-ai', {'code-hygiene-compounder'}),
+        'Claude command wrapper': ('code-hygiene-compounder-command', {'INSTALL.txt', '.claude'}),
+        'Claude command config': ('code-hygiene-compounder-command/.claude', {'commands', 'code-hygiene-compounder'}),
+        'Claude commands': ('code-hygiene-compounder-command/.claude/commands', {'code-hygiene.md'}),
+        'Codex plugin wrapper': ('plugins/code-hygiene-compounder', {'.codex-plugin', 'skills'}),
+        'Codex plugin metadata': ('plugins/code-hygiene-compounder/.codex-plugin', {'plugin.json'}),
+        'Codex plugin skills': ('plugins/code-hygiene-compounder/skills', {'code-hygiene-compounder'}),
+    }
+    for label, (relative, entries) in wrapper_layouts.items():
+        check_edition_root(repo_root / relative, entries, label, reporter)
+    check_edition_root(claude_ai_root, {'SKILL.md', 'references', 'scripts', 'fixtures'}, 'Claude AI root layout', reporter)
+    check_edition_root(command_root, {'references', 'scripts', 'fixtures'}, 'Claude command root layout', reporter)
     if (claude_ai_root / 'SKILL.md').is_file():
         expected = read_skill_text(codex_root).replace('\r\n', '\n')
         actual = read_text(claude_ai_root / 'SKILL.md')
@@ -404,7 +483,7 @@ def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
             reporter.pass_check('Claude command sync', 'command text matches export template')
         else:
             reporter.fail_check('Claude command sync', 'Claude command text is stale')
-    check_tree_sync(codex_root, codex_plugin_root, 'Codex plugin skill sync', reporter)
+    check_tree_sync(codex_root, codex_plugin_root, 'Codex plugin skill sync', reporter, skip_source_root_claude_plugin=True)
     for relative in ('references', 'scripts', 'fixtures'):
         source = codex_root / relative
         if not source.exists():
@@ -414,7 +493,11 @@ def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
 def validate(repo_root: Path, allow_runs: bool) -> dict:
     reporter = Reporter()
     repo_root = repo_root.resolve()
+    if not check_edition_links(repo_root, reporter):
+        return {'valid': False, 'repo_root': str(repo_root), 'checks': reporter.checks, 'errors': reporter.errors, 'warnings': reporter.warnings}
     check_expected_paths(repo_root, reporter)
+    for relative in (FUNCTION_ONLY_DIR, SKELETON_DIR, Path('.agents/skills/code-hygiene'), Path('.cursor/skills/code-hygiene')):
+        check_edition_root(repo_root / relative, {'SKILL.md'}, f'{relative.as_posix()} layout', reporter)
     check_instance_counts(repo_root, reporter)
     check_native_ai_entrypoints(repo_root, reporter)
     check_portable_prompt_content(repo_root, reporter)
@@ -424,16 +507,61 @@ def validate(repo_root: Path, allow_runs: bool) -> dict:
     check_public_docs(repo_root, reporter)
     check_path_budget(repo_root, reporter)
     check_generated_artifacts(repo_root, allow_runs, reporter)
+    check_excluded_package_content(repo_root, reporter)
     check_source_packs(repo_root / PACKAGE_DIRS['codex_skill'], reporter)
     check_context_index(repo_root / PACKAGE_DIRS['codex_skill'], reporter)
     check_export_sync(repo_root, reporter)
     return {'valid': not reporter.errors, 'repo_root': str(repo_root), 'checks': reporter.checks, 'errors': reporter.errors, 'warnings': reporter.warnings}
+
+
+def doctor(repo_root: Path, runtime_skill_root: Path | None = None, runtime_edition: str = 'codex_skill') -> dict:
+    if runtime_edition not in RUNTIME_EDITIONS:
+        raise ValueError(f'unknown runtime edition: {runtime_edition}')
+    """Inspect local prerequisites and explicitly supplied parity without mutation."""
+    checks: list[dict] = []
+    python_ok = sys.version_info >= (3, 11)
+    checks.append({'name': 'python', 'status': 'pass' if python_ok else 'fail', 'detail': {'executable': sys.executable, 'version': sys.version.split()[0]}})
+    node = shutil.which('node')
+    try:
+        completed = subprocess.run([node, '--version'], capture_output=True, text=True, timeout=5) if node else None
+        node_version = completed.stdout.strip() if completed and completed.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        node_version = None
+    checks.append({'name': 'node24', 'status': 'pass' if node_version and node_version.startswith('v24.') else 'fail', 'detail': {'executable': node, 'version': node_version}})
+    package = validate(repo_root, False)
+    checks.append({'name': 'package', 'status': 'pass' if package['valid'] else 'fail', 'detail': {'errors': package['errors']}})
+    if runtime_skill_root is None:
+        checks.append({'name': 'runtime_parity', 'status': 'not-applicable', 'detail': 'no runtime skill root supplied'})
+    else:
+        canonical = repo_root / RUNTIME_EDITIONS[runtime_edition]
+        if runtime_skill_root.is_dir():
+            canonical_files = tree_fingerprint(canonical)
+            runtime_files = tree_fingerprint(runtime_skill_root)
+            equal = canonical_files == runtime_files
+            detail = {'missing': sorted(set(canonical_files) - set(runtime_files)), 'extra': sorted(set(runtime_files) - set(canonical_files)), 'changed': sorted(key for key in set(canonical_files) & set(runtime_files) if canonical_files[key] != runtime_files[key])}
+        else:
+            equal, detail = False, {'error': f'runtime skill missing: {runtime_skill_root}'}
+        checks.append({'name': 'runtime_parity', 'status': 'pass' if equal else 'fail', 'detail': {'edition': runtime_edition, **detail}})
+    return {'valid': all(check['status'] != 'fail' for check in checks), 'checks': checks}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Validate the package workspace shape.')
     parser.add_argument('--repo-root', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--allow-runs', action='store_true', help='Do not fail when runs/ directories exist.')
     parser.add_argument('--json', action='store_true', help='Print full JSON instead of a short summary.')
+    parser.add_argument('--doctor', action='store_true', help='Read-only interpreter, prerequisite, package, and parity checks.')
+    parser.add_argument('--runtime-skill-root', type=Path, help='Installed skill root to compare explicitly in --doctor mode.')
+    parser.add_argument('--runtime-edition', choices=sorted(RUNTIME_EDITIONS), default='codex_skill', help='Repository edition represented by --runtime-skill-root.')
     args = parser.parse_args()
+    if args.runtime_skill_root and not args.doctor:
+        parser.error('--runtime-skill-root requires --doctor')
+    if args.doctor:
+        report = doctor(args.repo_root.resolve(), args.runtime_skill_root, args.runtime_edition)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        if not report['valid']:
+            raise SystemExit(1)
+        return
     result = validate(args.repo_root, args.allow_runs)
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

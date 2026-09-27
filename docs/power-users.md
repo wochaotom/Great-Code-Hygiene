@@ -312,13 +312,122 @@ failure, independent evidence, or an admitted source-backed rule.
 
 ### Promotion and Overtraining Control
 
-A candidate should be promoted only after the relevant result validation,
-baseline comparison, fixture checks, package parity, and guardrail checks pass.
-The candidate must address an observed failure or source-backed principle,
-remain concise, and avoid weakening critical categories.
+A candidate can be applied only through a v2 evidence bundle passed to
+`promote_candidate.py --evidence-bundle`. A score file passed with `--score`
+remains readable for diagnosis but cannot authorize `--apply`. The bundle
+references SHA-256 checked artifacts: a predeclared plan, matched baseline and
+candidate result records, fresh-context external execution records and captured
+outputs, target snapshots, verification results, and an independent review that inspected them.
+The reviewer report and the fresh reviewer's raw output are distinct hashed
+artifacts; the report must match the captured output and name every inspected
+artifact hash. A hand-written approval record alone cannot satisfy this gate.
+Hashes establish artifact integrity, not that execution really happened;
+reviewers must inspect the actual capture. The verifier cannot authenticate an
+operator who fabricates every record, including reviewer output. Synthetic
+accepted-path tests prove only gate behavior, never an actual promotion.
+Script-only and audit-backed scores
+cannot be mixed with model-execution scores for promotion.
+
+The accepted verifier, rubric, suite, fixtures, source weights, plugin metadata,
+agent metadata, context-index schema, and policy must remain outside
+the candidate tree and match the installed baseline's controls. Candidate edits
+to those controls require ordinary reviewed repository maintenance. A promotion
+must cover every prompt in each predeclared focused category, not a favorable
+subset. The verifier reruns each untouched applicable fixture in a temporary
+copy and confirms its declared failure signature with protected tests unchanged.
+The current-skill model arm may fix that fixture or fail with the known
+assertion signature; the candidate arm must pass. Every repository fixture run
+must bind a hashed ZIP snapshot of its edited target to its execution,
+verification result, and independent review. The archive is checked for unsafe
+paths and protected-test changes. A pass claim cannot use a snapshot identical
+to the known-failing accepted source, and a report must retain every test
+identity observed in the untouched baseline (exactly those identities when
+all test files are protected). Each execution also carries the
+predeclared plan hash. The plan, both scored results, and every execution
+record must agree on the harness command and settings; the recorded execution
+arguments must exactly match the planned command. Use `fixture_runner.py snapshot` after running
+the tests to create it. This binding makes the edited target inspectable but
+does not, by itself, prove the recorded tests ran on that exact archive.
+Edited fixture targets are executable code. Run them only in an appropriately
+isolated external harness; a test reporter and hashed output cannot establish
+authenticity against code that can tamper with the harness or an operator who
+fabricates all inputs.
+A promotion also requires structural budgets, package parity, no aggregate
+mean regression and no critical-category regression on declared critical prompts,
+a focused average of at least 85, and a predeclared gain (or identical category
+scores for every matched prompt and trial with smaller active instructions). For
+equal-score promotions, the conservative size
+check counts `SKILL.md` and eligible instruction files under `references/`
+in both trees. Generated context-index JSON, its schema, source-weight JSON,
+agent metadata, and plugin metadata cannot supply a size reduction; the pinned
+control files must match accepted controls. V2 category and total scores use
+half-point increments, so floating-point dust cannot constitute a gain.
+Candidate roots outside the declared package layout are rejected.
+It requires at least 32 fewer bytes and 16 fewer non-whitespace bytes; moving
+text into another extension or trimming only whitespace does not qualify.
+Candidate trees containing excluded runtime or metadata paths are rejected,
+since those files would not be installed. Each target ID binds to a
+nonempty snapshot
+artifact in the plan and execution record; hard mode needs three distinct
+snapshot hashes. The reviewer must inspect the snapshots as well as run records.
+Source-backed edits, including source-derived reference changes, need a valid
+honing report in the bundle. Its activated IDs must be accepted weighted sources;
+every always-activated source and changed source pack must be named.
+Unavailable gates
+fail; they do not become implicit passes.
+
+Promotion `--apply` requires a writable `--log` path outside both the current
+and candidate trees;
+the flushed `apply_started` record precedes the directory swap. Its absence
+blocks application. The current path must be the full canonical trainer
+package, including its controlled scripts, fixtures, agents, and plugin
+metadata; an isolated edition export is not a promotion baseline.
+Installation stages the candidate, verifies its fingerprint, journals the
+transaction, and swaps directories. A pending journal blocks another apply
+until `promote_candidate.py --current path/to/skill --recover` rolls back an
+incomplete swap or closes a verified commit journal. Durable run and fixture
+data excluded from promotion is moved into the new installation; bytecode,
+tool caches, and `dist` remain in the retained backup. The previous tree is
+retained at the reported `retained_backup` path even after a successful apply;
+run recovery only after the apply process has exited. Quiesce writers and
+inspect the backup before manual removal. This avoids deleting a
+late write into the old tree during automatic cleanup.
+If rollback displaces an installed candidate, recovery retains that tree at
+the reported `retained_discard` path rather than deleting possible late writes.
+If runtime data appears in both trees or remains in the backup after the move,
+the journal and backup remain intact for manual reconciliation.
+The verifier rejects local bytecode caches in its script tree before importing
+internal modules. Package validation also rejects fingerprint-excluded content
+inside any distributed trainer root; direct exports omit those paths.
+
+Claude export refuses an output directory that overlaps the skill root or an
+existing directory it did not create. Repeated exports replace only an
+unchanged, marked prior export; user edits in that output are preserved by
+refusing the replacement.
 
 Phase advancement remains a human decision. The trainer can recommend more
 coverage but cannot declare that a broader eval phase is warranted on its own.
+
+### Historical Evidence Audit
+
+The v0.3.0 audit inspected reachable Git history, retained local evidence, and
+available CI artifacts. It found 55 existing promoted lessons and four named
+post-release promotion commits. No target-level model outputs, matched score
+records, reviewer records, or promotion decisions were retained for those
+lessons. All 55 are therefore **unverifiable**, not contradicted, against the
+requirements in force when they were added; none is eligible under the new v2
+protocol. Existing lessons and Git history are preserved. A passing package CI
+run is not evidence that a model-execution promotion gate passed.
+
+### Migration From Score Files
+
+Existing result files can still be validated and analyzed. For a new promotion,
+predeclare targets, trials, critical prompts, model, harness, runtime, and the
+accepted control hashes before running either arm. Capture each fresh external
+run's output and verification, score matched trials under the same rubric, and
+obtain an independent review of those artifacts. Supply their relative paths
+and hashes in a v2 bundle; run without `--apply` first to inspect every gate.
+Do not use synthetic accepted-path tests as evidence of real model behavior.
 
 ### What the Scripts Automate
 

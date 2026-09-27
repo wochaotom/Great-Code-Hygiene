@@ -6,16 +6,118 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 sys.dont_write_bytecode = True
 from pass100_runner import load_prompts
 ALLOWED_BASELINE_EXPECTATIONS = {"fail", "pass"}
 ALLOWED_MODES = {"repo", "transcript"}
+RESULT_PREFIX = "CODE_HYGIENE_TEST_RESULT="
+EVENT_PREFIX = "CODE_HYGIENE_TEST_EVENT="
+
+
+def parse_test_report(stdout: str, framework: str) -> dict | None:
+    if framework == "python-unittest":
+        lines = [line[len(RESULT_PREFIX):] for line in stdout.splitlines() if line.startswith(RESULT_PREFIX)]
+        if len(lines) != 1:
+            return None
+        try:
+            report = json.loads(lines[0])
+        except json.JSONDecodeError:
+            return None
+        return report if isinstance(report, dict) and report.get("framework") == framework else None
+    if framework == "node-test":
+        try:
+            events = [json.loads(line[len(EVENT_PREFIX):]) for line in stdout.splitlines() if line.startswith(EVENT_PREFIX)]
+        except json.JSONDecodeError:
+            return None
+        if any(not isinstance(event, dict) for event in events):
+            return None
+        summaries = [event for event in events if event.get("event") == "test:summary"]
+        if len(summaries) != 1:
+            return None
+        counts = summaries[0].get("counts")
+        if not isinstance(counts, dict):
+            return None
+        result_events = [event for event in events if event.get("event") in {"test:pass", "test:fail"}]
+        if any(event.get("test_type") not in {"test", "suite"} for event in result_events):
+            return None
+        suite_errors = [event for event in result_events if event.get("test_type") == "suite" and event.get("event") == "test:fail"]
+        test_events = [event for event in result_events if event.get("test_type") == "test"]
+        if any(not isinstance(event.get("name"), str) or not event["name"] for event in result_events):
+            return None
+        failures = [event for event in test_events if event.get("event") == "test:fail" and event.get("error_code") == "ERR_ASSERTION"]
+        errors = [event for event in test_events if event.get("event") == "test:fail" and event not in failures]
+        return {
+            "framework": framework,
+            "tests_run": counts.get("tests"),
+            "skipped": counts.get("skipped", 0),
+            "todo": counts.get("todo", 0),
+            "failures": sorted(event["name"] for event in failures),
+            "errors": sorted(event["name"] for event in errors),
+            "suite_errors": sorted(event["name"] for event in suite_errors),
+            "passed": sorted(event["name"] for event in test_events if event.get("event") == "test:pass" and not event.get("skip") and not event.get("todo")),
+        }
+    return None
+
+
+def executed_test_count(report: dict) -> int | None:
+    count = report.get("tests_run")
+    exclusions = [report.get(key, 0) for key in ("skipped", "todo", "expected_failures")]
+    if (not isinstance(count, int) or isinstance(count, bool) or count < 0
+            or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in exclusions)):
+        return None
+    executed = count - sum(exclusions)
+    if executed < 0:
+        return None
+    identities = [report.get(key) for key in ("passed", "failures", "errors")]
+    if executed == 0 and any(item is None for item in identities):
+        return 0
+    if any(not isinstance(item, list) or any(not isinstance(value, str) or not value for value in item) for item in identities):
+        return None
+    all_ids = [identity for group in identities for identity in group]
+    return executed if len(all_ids) == executed and len(set(all_ids)) == executed else None
+
+
+def classify_test_outcome(command_result: dict, signature: dict) -> dict:
+    if command_result.get("timed_out"):
+        return {"outcome": "timeout", "signature_matched": False}
+    if command_result.get("infrastructure_error"):
+        return {"outcome": "infrastructure_error", "signature_matched": False}
+    report = command_result.get("test_report")
+    if not isinstance(report, dict):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if report.get("suite_errors"):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if signature.get("framework") and report.get("framework") != signature["framework"]:
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    count = executed_test_count(report)
+    if count is None:
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if count == 0:
+        return {"outcome": "no_tests", "signature_matched": False}
+    failures = report.get("failures")
+    errors = report.get("errors")
+    if not isinstance(failures, list) or not isinstance(errors, list):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if count < signature.get("test_count_min", 1) or errors:
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if failures:
+        expected = signature.get("expected_failures")
+        matched = isinstance(expected, list) and sorted(expected) == sorted(failures) and isinstance(command_result.get("exit_code"), int) and command_result["exit_code"] != 0
+        return {"outcome": "expected_assertion_failure" if matched else "unexpected_test_error", "signature_matched": matched}
+    expected = signature.get("expected_failures", [])
+    passed = report.get("passed")
+    if expected and (not isinstance(passed, list) or not set(expected).issubset(passed)):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    return {"outcome": "pass" if command_result.get("exit_code") == 0 else "unexpected_test_error", "signature_matched": False}
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -47,6 +149,11 @@ def tail(text: str, limit: int = 4000) -> str:
         return text
     return text[-limit:]
 
+
+def structured_report_output(stdout: str) -> str:
+    lines = [line for line in stdout.splitlines() if line.startswith((RESULT_PREFIX, EVENT_PREFIX))]
+    return "\n".join(lines) + ("\n" if lines else "")
+
 def load_fixtures(fixtures: Path) -> list[dict]:
     fixtures = fixtures.resolve()
     manifests = sorted(fixtures.glob("*/fixture.json"))
@@ -67,9 +174,17 @@ def validate_command(value: object, label: str, errors: list[str]) -> None:
     if not isinstance(value, list) or not value:
         errors.append(f"{label}.test_command must be a non-empty array")
         return
+    invalid_parts = False
     for index, part in enumerate(value):
         if not isinstance(part, str) or not part.strip():
             errors.append(f"{label}.test_command[{index}] must be a non-empty string")
+            invalid_parts = True
+    if invalid_parts:
+        return
+    python_discovery = len(value) == 6 and value[:5] == ["{python}", "-m", "unittest", "discover", "-s"]
+    node_test = len(value) == 3 and value[:2] == ["node", "--test"]
+    if not (python_discovery or node_test):
+        errors.append(f"{label}.test_command must use supported structured unittest discovery or node --test form")
 
 def fixture_mode(item: dict) -> str:
     return item["mode"] if "mode" in item and isinstance(item["mode"], str) else ("repo" if "mode" not in item else "invalid")
@@ -88,12 +203,36 @@ def validate_fixture(item: dict, known_prompt_ids: set[str] | None) -> list[str]
     if mode == "repo":
         require_string(item, "repo_dir", str(label), errors)
         validate_command(item.get("test_command"), str(label), errors)
+        signature = item.get("baseline_signature")
+        if item.get("baseline_expected") == "fail":
+            if not isinstance(signature, dict):
+                errors.append(f"{label}.baseline_signature must declare expected assertion failures")
+            elif not isinstance(signature.get("expected_failures"), list) or not signature["expected_failures"]:
+                errors.append(f"{label}.baseline_signature.expected_failures must be non-empty")
+            elif any(not isinstance(name, str) or not name for name in signature["expected_failures"]):
+                errors.append(f"{label}.baseline_signature.expected_failures values must be non-empty strings")
+            if isinstance(signature, dict):
+                if signature.get("framework") not in {"python-unittest", "node-test"}:
+                    errors.append(f"{label}.baseline_signature.framework is unsupported")
+                count_min = signature.get("test_count_min")
+                if not isinstance(count_min, int) or isinstance(count_min, bool) or count_min < 1:
+                    errors.append(f"{label}.baseline_signature.test_count_min must be positive")
+                failures = signature.get("expected_failures")
+                if isinstance(failures, list) and all(isinstance(name, str) for name in failures) and len(failures) != len(set(failures)):
+                    errors.append(f"{label}.baseline_signature.expected_failures must be unique")
     if mode == "transcript":
         markers = item.get("expected_markers")
         if not isinstance(markers, list) or not markers:
             errors.append(f"{label}.expected_markers must be a non-empty array")
         elif any(not isinstance(marker, str) or not marker.strip() for marker in markers):
             errors.append(f"{label}.expected_markers values must be non-empty strings")
+        if item.get("baseline_expected") == "fail":
+            signature = item.get("baseline_signature")
+            missing = signature.get("expected_missing_markers") if isinstance(signature, dict) else None
+            if not isinstance(missing, list) or not missing or any(not isinstance(marker, str) or not marker.strip() for marker in missing):
+                errors.append(f"{label}.baseline_signature.expected_missing_markers must be a non-empty string array")
+            elif isinstance(markers, list) and (len(set(missing)) != len(missing) or not set(missing).issubset(markers)):
+                errors.append(f"{label}.baseline_signature.expected_missing_markers must be unique expected markers")
 
     prompt_id = item.get("prompt_id")
     if known_prompt_ids is not None and isinstance(prompt_id, str) and prompt_id not in known_prompt_ids:
@@ -174,49 +313,106 @@ def command_for_current_python(command: list[str]) -> list[str]:
     return [sys.executable if part == "{python}" else part for part in command]
 
 
+def structured_command(command: list[str], report_path: Path) -> tuple[list[str], str]:
+    internal = Path(__file__).resolve().parent / "internal"
+    if len(command) == 6 and command[1:4] == ["-m", "unittest", "discover"] and command[4] == "-s":
+        return [command[0], str(internal / "unittest_reporter.py"), command[5], str(report_path)], "python-unittest"
+    if len(command) >= 3 and command[1] == "--test":
+        return [command[0], f"--test-reporter={(internal / 'node_reporter.mjs').as_uri()}", *command[1:]], "node-test"
+    raise SystemExit("fixture test command has no supported structured reporter")
+
+
 def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
     command = item.get("test_command")
     if not isinstance(command, list):
         raise SystemExit(f"{item.get('id')}: invalid test_command")
     command = command_for_current_python(command)
-    env = os.environ.copy()
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=target,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            env=env,
-        )
-        duration_ms = int((time.monotonic() - started) * 1000)
-        return {
-            "command": command,
-            "exit_code": completed.returncode,
-            "duration_ms": duration_ms,
-            "tests_passed": completed.returncode == 0,
-            "stdout_tail": tail(completed.stdout),
-            "stderr_tail": tail(completed.stderr),
-            "timed_out": False,
-        }
-    except subprocess.TimeoutExpired as exc:
-        duration_ms = int((time.monotonic() - started) * 1000)
-        return {
-            "command": command,
-            "exit_code": None,
-            "duration_ms": duration_ms,
-            "tests_passed": False,
-            "stdout_tail": tail(exc.stdout or ""),
-            "stderr_tail": tail(exc.stderr or ""),
-            "timed_out": True,
-        }
+    with tempfile.TemporaryDirectory(prefix="hygiene-report-") as report_dir:
+        report_path = Path(report_dir) / "result.json"
+        effective_command, framework = structured_command(command, report_path)
+        env = os.environ.copy()
+        for name in ("NODE_OPTIONS", "NODE_PATH", "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT"):
+            env.pop(name, None)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        started = time.monotonic()
+        try:
+            completed = subprocess.run(
+                effective_command,
+                cwd=target,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                env=env,
+            )
+            duration_ms = int((time.monotonic() - started) * 1000)
+            report = parse_test_report(completed.stdout, framework)
+            if framework == "python-unittest":
+                try:
+                    sidecar = json.loads(report_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    sidecar = None
+                if report != sidecar:
+                    report = None
+            return {
+                "command": command,
+                "effective_command": effective_command,
+                "framework": framework,
+                "test_report": report,
+                "exit_code": completed.returncode,
+                "duration_ms": duration_ms,
+                "tests_passed": completed.returncode == 0 and isinstance(report, dict) and (executed_test_count(report) or 0) > 0 and not report.get("failures") and not report.get("errors") and not report.get("suite_errors"),
+                "stdout_tail": tail(completed.stdout),
+                "report_output": structured_report_output(completed.stdout),
+                "stderr_tail": tail(completed.stderr),
+                "timed_out": False,
+            }
+        except subprocess.TimeoutExpired as exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            return {
+                "command": command,
+                "effective_command": effective_command,
+                "framework": framework,
+                "test_report": None,
+                "exit_code": None,
+                "duration_ms": duration_ms,
+                "tests_passed": False,
+                "stdout_tail": tail((exc.stdout or b"").decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")),
+                "report_output": "",
+                "stderr_tail": tail((exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")),
+                "timed_out": True,
+            }
+        except OSError as exc:
+            return {
+                "command": command,
+                "effective_command": effective_command,
+                "framework": framework,
+                "test_report": None,
+                "exit_code": None,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "tests_passed": False,
+                "stdout_tail": "",
+                "report_output": "",
+                "stderr_tail": str(exc),
+                "timed_out": False,
+                "infrastructure_error": True,
+            }
 
 
 def protected_file_failures(item: dict, target: Path) -> list[dict]:
     root = Path(str(item["_fixture_root"])) / str(item["repo_dir"])
     failures: list[dict] = []
+    def test_paths(tree: Path) -> set[str]:
+        return {
+            path.relative_to(tree).as_posix()
+            for path in (tree / "tests").rglob("*")
+            if path.is_file() or path.is_symlink()
+        }
+
+    baseline_tests, candidate_tests = test_paths(root), test_paths(target)
+    for relative in sorted(candidate_tests - baseline_tests):
+        failures.append({"path": relative, "reason": "added test file"})
+    for relative in sorted(baseline_tests - candidate_tests):
+        failures.append({"path": relative, "reason": "missing test file"})
     for relative in item.get("protected_files", []) or []:
         baseline = root / relative
         candidate = target / relative
@@ -237,8 +433,9 @@ def run_fixture_target(item: dict, target: Path, timeout: int) -> dict:
     if not target.is_dir():
         raise SystemExit(f"target does not exist or is not a directory: {target}")
     command_result = run_fixture_command(item, target, timeout)
+    outcome = classify_test_outcome(command_result, item.get("baseline_signature", {}))
     protected_failures = protected_file_failures(item, target)
-    resolved = bool(command_result["tests_passed"]) and not protected_failures
+    resolved = outcome["outcome"] == "pass" and not protected_failures
     return {
         "fixture_id": item["id"],
         "prompt_id": item["prompt_id"],
@@ -247,6 +444,7 @@ def run_fixture_target(item: dict, target: Path, timeout: int) -> dict:
         "resolved": resolved,
         "protected_files_ok": not protected_failures,
         "protected_file_failures": protected_failures,
+        **outcome,
         **command_result,
     }
 
@@ -265,6 +463,33 @@ def copy_fixture_repo(item: dict, target: Path, force: bool = False) -> None:
     )
 
 
+def write_fixture_snapshot(item: dict, target: Path, output: Path) -> str:
+    if fixture_mode(item) != "repo" or not target.is_dir():
+        raise ValueError("snapshot requires an edited repository fixture target")
+    if protected_file_failures(item, target):
+        raise ValueError("snapshot target changes protected files or test inventory")
+    target_root = target.resolve(strict=True)
+    output_path = output.resolve(strict=False)
+    if is_relative_to(output_path, target_root) or output.exists():
+        raise ValueError("snapshot output must be new and outside the target")
+    files = []
+    for path in target_root.rglob("*"):
+        if any(part.casefold() in {"__pycache__", ".pytest_cache", ".mypy_cache", ".git", "runs"} for part in path.relative_to(target_root).parts):
+            continue
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or (os.name == "nt" and getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise ValueError(f"snapshot target contains an unsafe link: {path}")
+        if path.is_file():
+            files.append(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output, "x") as archive:
+        for path in sorted(files, key=lambda item: item.relative_to(target_root).as_posix()):
+            entry = zipfile.ZipInfo(path.relative_to(target_root).as_posix(), date_time=(1980, 1, 1, 0, 0, 0))
+            entry.external_attr = 0o100644 << 16
+            archive.writestr(entry, path.read_bytes())
+    return file_digest(output)
+
+
 def run_transcript_fixture(item: dict, target: Path) -> dict:
     actual_path, expected_path = target / "transcript.actual.md", target / "transcript.expected.md"
     for path in (actual_path, expected_path):
@@ -276,6 +501,9 @@ def run_transcript_fixture(item: dict, target: Path) -> dict:
     missing = [marker for marker in markers if isinstance(marker, str) and marker.casefold() not in actual_text]
     expected_missing = [marker for marker in markers if isinstance(marker, str) and marker.casefold() not in expected_text]
     resolved = not missing and not expected_missing
+    declared = item.get("baseline_signature", {}).get("expected_missing_markers", [])
+    signature_matched = bool(missing) and not expected_missing and sorted(missing) == sorted(declared)
+    outcome = "pass" if resolved else "expected_assertion_failure" if signature_matched else "unexpected_test_error"
     return {
         "fixture_id": item["id"],
         "prompt_id": item["prompt_id"],
@@ -283,6 +511,9 @@ def run_transcript_fixture(item: dict, target: Path) -> dict:
         "mode": "transcript",
         "target": str(target),
         "resolved": resolved,
+        "outcome": outcome,
+        "signature_matched": signature_matched,
+        "protected_files_ok": True,
         "missing_markers": missing,
         "expected_missing_markers": expected_missing,
         "actual_transcript": str(actual_path),
@@ -351,6 +582,15 @@ def cmd_run(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_snapshot(args: argparse.Namespace) -> None:
+    item = find_fixture(args.fixtures, args.fixture)
+    errors = validate_fixture(item, None)
+    if errors:
+        raise SystemExit("\n".join(errors))
+    archive_hash = write_fixture_snapshot(item, args.target, args.out)
+    print(json.dumps({"fixture_id": item["id"], "target_artifact": str(args.out), "sha256": archive_hash}, sort_keys=True))
+
+
 def default_work_root() -> Path | None:
     env_root = os.environ.get("CODE_HYGIENE_FIXTURE_TMP")
     if env_root:
@@ -380,7 +620,7 @@ def cmd_baseline(args: argparse.Namespace) -> None:
             expected = item["baseline_expected"]
             result["baseline_expected"] = expected
             result["expected_outcome_met"] = (
-                (expected == "fail" and not result["resolved"])
+                (expected == "fail" and result.get("outcome") == "expected_assertion_failure" and result["protected_files_ok"])
                 or (expected == "pass" and result["resolved"])
             )
             results.append(result)
@@ -431,6 +671,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--target", type=Path, required=True)
     run_parser.add_argument("--out", type=Path)
     run_parser.set_defaults(func=cmd_run)
+
+    snapshot_parser = subparsers.add_parser("snapshot", help="Archive an edited repository fixture target for review evidence.")
+    snapshot_parser.add_argument("--fixture", required=True)
+    snapshot_parser.add_argument("--target", type=Path, required=True)
+    snapshot_parser.add_argument("--out", type=Path, required=True)
+    snapshot_parser.set_defaults(func=cmd_snapshot)
 
     baseline_parser = subparsers.add_parser("baseline", help="Confirm baseline fixtures fail or pass as declared.")
     baseline_parser.add_argument("--out", type=Path)

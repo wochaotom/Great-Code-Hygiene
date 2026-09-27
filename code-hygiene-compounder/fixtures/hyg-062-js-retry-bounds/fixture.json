@@ -1,10 +1,11 @@
 {
   "baseline_expected": "fail",
+  "baseline_signature": {"framework": "node-test", "test_count_min": 5, "expected_failures": ["fractional maxAttempts is normalized before the retry loop", "non-finite maxAttempts cannot create an unbounded loop", "non-positive maxAttempts still makes one bounded attempt", "stops after the configured number of attempts"]},
   "category": "Error Handling and Observability",
   "id": "hyg-062-js-retry-bounds",
   "pass_stat": "node_test_exit_zero",
   "prompt_id": "HYG-062",
-  "protected_files": [],
+  "protected_files": ["tests/retry.test.js"],
   "repo_dir": "repo",
   "test_command": ["node", "--test", "tests/retry.test.js"],
   "title": "Bound JavaScript retry attempts while preserving transient success"

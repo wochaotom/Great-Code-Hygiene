@@ -11,20 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 
-
-CATEGORY_KEYS = {
-    "correctness": 15,
-    "tests": 15,
-    "maintainability": 15,
-    "security": 10,
-    "local_integration": 10,
-    "minimal_diff": 10,
-    "observability": 10,
-    "documentation": 5,
-    "dependencies": 5,
-    "agent_process": 5,
-}
-
+from internal.policy import CATEGORY_KEYS
+from internal.policy import CRITICAL_CATEGORIES
+from internal.policy import PROMOTION_THRESHOLD
+from internal.policy import finite_number
 
 PROMPT_RE = re.compile(r"^\s*(\d+)\.\s+\*\*(HYG-\d{3}):\*\*\s+(.*)$")
 
@@ -106,29 +96,85 @@ def cmd_list(args: argparse.Namespace) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def select_batch(prompts: list[dict], mode: str, seed: int | None, limit: int | None) -> list[dict]:
+def select_batch(prompts: list[dict], mode: str, seed: int | None, limit: int | None,
+                 categories: list[str] | None = None, failure_ids: set[str] | None = None) -> list[dict]:
+    if limit is not None and mode != "sample":
+        raise SystemExit("--limit is available only in sample mode")
     if mode == "full":
         selected = prompts
     elif mode == "smoke":
-        selected = prompts[:10]
+        groups: dict[str, list[dict]] = {}
+        for prompt in prompts:
+            groups.setdefault(prompt["category"], []).append(prompt)
+        rng = random.Random(seed)
+        for group in groups.values():
+            if seed is not None:
+                rng.shuffle(group)
+        selected = []
+        while len(selected) < min(10, len(prompts)):
+            added = False
+            for group in groups.values():
+                if group and len(selected) < min(10, len(prompts)):
+                    selected.append(group.pop(0))
+                    added = True
+            if not added:
+                break
     elif mode == "focused":
-        selected = prompts[:50]
+        if not categories:
+            raise SystemExit("focused mode requires --category")
+        unknown = set(categories) - {prompt["category"] for prompt in prompts}
+        if unknown:
+            raise SystemExit("unknown categories: " + ", ".join(sorted(unknown)))
+        selected = [prompt for prompt in prompts if prompt["category"] in categories]
     elif mode == "regression":
-        selected = prompts[-100:]
+        if not failure_ids:
+            raise SystemExit("regression mode requires --failure-history")
+        selected = [prompt for prompt in prompts if prompt["id"] in failure_ids]
+        if len(selected) != len(failure_ids):
+            raise SystemExit("failure history contains unknown prompt ids")
     elif mode == "sample":
         rng = random.Random(seed)
         count = limit or min(25, len(prompts))
         selected = rng.sample(prompts, min(count, len(prompts)))
     else:
         raise SystemExit(f"Unknown mode: {mode}")
-    if limit and mode != "sample":
-        selected = selected[:limit]
     return selected
+
+
+def load_failure_ids(path: Path, threshold: float = PROMOTION_THRESHOLD) -> set[str]:
+    from validate_results import load_json, validate_payload
+
+    try:
+        history = load_json(path)
+    except SystemExit as exc:
+        raise SystemExit(f"invalid failure history: {exc}") from exc
+    if "aggregate" in history:
+        aggregate = history.get("aggregate")
+        if history.get("valid") is not True or not isinstance(aggregate, dict):
+            raise SystemExit("failure history analysis must be valid")
+        records = aggregate.get("low_scores")
+    else:
+        errors, _ = validate_payload(history)
+        if errors:
+            raise SystemExit("failure history result is invalid: " + "; ".join(errors))
+        records = history.get("scores")
+    if not isinstance(records, list):
+        raise SystemExit("failure history must contain recorded scores")
+    failures = {
+        item["prompt_id"]
+        for item in records
+        if isinstance(item, dict) and isinstance(item.get("prompt_id"), str)
+        and finite_number(item.get("total")) and item["total"] < threshold
+    }
+    if not failures:
+        raise SystemExit("failure history has no recorded low scores")
+    return failures
 
 
 def cmd_batch(args: argparse.Namespace) -> None:
     prompts = load_prompts(args.suite)
-    selected = select_batch(prompts, args.mode, args.seed, args.limit)
+    failure_ids = load_failure_ids(args.failure_history) if args.failure_history else None
+    selected = select_batch(prompts, args.mode, args.seed, args.limit, args.category, failure_ids)
     payload = {
         "batch_id": args.batch_id or f"{args.mode}-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
         "created_at": utc_now(),
@@ -151,14 +197,14 @@ def validate_score(item: dict) -> list[str]:
     subtotal = 0
     for key, maximum in CATEGORY_KEYS.items():
         value = categories.get(key)
-        if not isinstance(value, (int, float)):
+        if not finite_number(value):
             warnings.append(f"missing numeric category: {key}")
             continue
         if value < 0 or value > maximum:
             warnings.append(f"{key}={value} outside 0..{maximum}")
         subtotal += value
     total = item.get("total")
-    if not isinstance(total, (int, float)):
+    if not finite_number(total):
         warnings.append("missing numeric total")
     elif abs(total - subtotal) > 0.01:
         warnings.append(f"total {total} does not match category sum {subtotal}")
@@ -166,14 +212,13 @@ def validate_score(item: dict) -> list[str]:
 
 
 def cmd_score(args: argparse.Namespace) -> None:
-    try:
-        raw = json.loads(args.results.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(
-            f"{args.results}: invalid JSON: {exc.msg} at line {exc.lineno} column {exc.colno}"
-        ) from exc
-    if not isinstance(raw, dict):
-        raise SystemExit("results JSON must be an object")
+    from validate_results import validate_payload
+    from validate_results import load_json
+
+    raw = load_json(args.results)
+    errors, _ = validate_payload(raw)
+    if errors:
+        raise SystemExit("invalid results: " + "; ".join(errors))
     scores = raw.get("scores", [])
     if not isinstance(scores, list) or not scores:
         raise SystemExit("results JSON must contain a non-empty scores array")
@@ -188,14 +233,14 @@ def cmd_score(args: argparse.Namespace) -> None:
             warnings.append({"prompt_id": prompt_id, "warnings": item_warnings})
         if not isinstance(item, dict):
             continue
-        if isinstance(item.get("total"), (int, float)):
+        if finite_number(item.get("total")):
             totals.append(float(item["total"]))
         categories = item.get("categories", {})
         if not isinstance(categories, dict):
             categories = {}
         for key in CATEGORY_KEYS:
             value = categories.get(key)
-            if isinstance(value, (int, float)):
+            if finite_number(value):
                 category_values[key].append(float(value))
 
     if not totals:
@@ -207,7 +252,7 @@ def cmd_score(args: argparse.Namespace) -> None:
     }
     critical_regression = any(
         category_averages[key] is not None and category_averages[key] < CATEGORY_KEYS[key] * 0.7
-        for key in ("correctness", "tests", "security", "minimal_diff")
+        for key in CRITICAL_CATEGORIES
     )
     run_type = raw.get("run_type", "unspecified")
     evidence = RUN_TYPE_EVIDENCE.get(run_type, DEFAULT_EVIDENCE)
@@ -229,7 +274,8 @@ def cmd_score(args: argparse.Namespace) -> None:
         "category_averages": category_averages,
         "evidence_warning": evidence_warning,
         "warnings": warnings,
-        "promotion_ready": average >= args.threshold and not warnings and not critical_regression,
+        "promotion_ready": False,
+        "diagnostic_score_threshold_met": average >= args.threshold and not warnings and not critical_regression,
         "threshold": args.threshold,
     }
     write_json(args.out, payload)
@@ -255,13 +301,15 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument("--batch-id")
     batch_parser.add_argument("--seed", type=int)
     batch_parser.add_argument("--limit", type=int)
+    batch_parser.add_argument("--category", action="append", help="Required in focused mode; repeatable exact category name.")
+    batch_parser.add_argument("--failure-history", type=Path, help="Valid result or analysis JSON with recorded low scores for regression mode.")
     batch_parser.set_defaults(func=cmd_batch)
 
     score_parser = subparsers.add_parser("score", help="Score a PASS-100 results JSON file.")
     score_parser.add_argument("--results", type=Path, required=True)
     score_parser.add_argument("--out", type=Path, required=True)
     score_parser.add_argument("--log", type=Path)
-    score_parser.add_argument("--threshold", type=float, default=85.0)
+    score_parser.add_argument("--threshold", type=float, default=PROMOTION_THRESHOLD)
     score_parser.set_defaults(func=cmd_score)
     return parser
 

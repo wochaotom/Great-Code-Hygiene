@@ -4,26 +4,24 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 import shutil
 import zipfile
 from pathlib import Path
 
+from internal.package_meta import EXCLUDED_NAMES
+from internal.package_meta import SKILL_NAME
+from internal.package_meta import PACKAGE_DIRS
+from internal.evidence import unsafe_link
 
-EXCLUDED_NAMES = {
-    "runs",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".fixture-tmp",
-    ".fixture-work",
-    ".git",
-}
-SKILL_NAME = "code-hygiene-compounder"
 CLAUDE_SKILL_DESCRIPTION = (
     "Improve, review, refactor, harden, test, and evaluate code hygiene with "
     "PASS-100 scoring and source-grounded compounding."
 )
 PORTABLE_PROMPT_NAME = "code-hygiene-compounder-chat.md"
+EXPORT_MARKER = ".great-code-hygiene-export.json"
 
 
 COMMAND_TEXT = """# Code Hygiene Compounder
@@ -108,23 +106,56 @@ Skip any step = not verified. Do not treat prior runs, agent reports, generated 
 """
 
 
-def copy_tree(src: Path, dest: Path) -> None:
+def reject_export_links(root: Path) -> None:
+    if unsafe_link(root) or not root.is_dir():
+        raise ValueError(f"unsafe export link or missing directory: {root}")
+
+    def fail(error: OSError) -> None:
+        raise error
+
+    for current, dirs, files in os.walk(root, onerror=fail):
+        for name in dirs + files:
+            path = Path(current) / name
+            if unsafe_link(path):
+                raise ValueError(f"unsafe export link: {path}")
+
+
+def copy_tree(src: Path, dest: Path, extra_excludes: tuple[str, ...] = ()) -> None:
+    reject_export_links(src)
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*EXCLUDED_NAMES))
+    source_root = src.resolve(strict=True)
+
+    def ignored(directory: str, names: list[str]) -> set[str]:
+        excluded = {name.casefold() for name in EXCLUDED_NAMES}
+        if Path(directory).resolve(strict=True) == source_root:
+            excluded.update(name.casefold() for name in extra_excludes)
+        return {name for name in names if name.casefold() in excluded}
+
+    shutil.copytree(src, dest, symlinks=True, ignore=ignored)
+    reject_export_links(dest)
 
 
-def zip_dir(src: Path, zip_path: Path) -> None:
+def zip_dir(src: Path, zip_path: Path, prefix: str = "") -> None:
+    reject_export_links(src)
     if zip_path.exists():
         zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in src.rglob("*"):
+        for path in sorted(src.rglob("*"), key=lambda item: item.relative_to(src).as_posix()):
             relative_path = path.relative_to(src)
-            if path.is_file() and not any(part in EXCLUDED_NAMES for part in relative_path.parts):
-                archive.write(path, relative_path)
+            if path.is_file() and relative_path.as_posix() != EXPORT_MARKER and not any(part.casefold() in EXCLUDED_NAMES for part in relative_path.parts):
+                if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+                    raise ValueError(f"unsafe export link: {path}")
+                archive_name = (Path(prefix) / relative_path).as_posix() if prefix else relative_path.as_posix()
+                info = zipfile.ZipInfo(archive_name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                info.external_attr = 0o644 << 16
+                archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
 
 def read_skill_text(skill_root: Path) -> str:
+    reject_export_links(skill_root)
     text = (skill_root / "SKILL.md").read_text(encoding="utf-8-sig")
     if not text.startswith("---\n"):
         raise SystemExit("SKILL.md missing YAML frontmatter")
@@ -164,6 +195,7 @@ def remove_top_heading(text: str) -> str:
 
 
 def build_portable_prompt(skill_root: Path) -> str:
+    reject_export_links(skill_root)
     sections = [
         PORTABLE_PROMPT_INTRO.strip(),
         "## Hygiene Quick Entry\n\n" + remove_top_heading(read_reference(skill_root, "references/HYGIENE_QUICK.md")),
@@ -186,10 +218,44 @@ def validate_export_paths(skill_root: Path, package_root: Path, zip_path: Path) 
     skill_root = skill_root.resolve(strict=True)
     package_root = package_root.resolve(strict=False)
     zip_path = zip_path.resolve(strict=False)
-    if package_root == skill_root or is_relative_to(package_root, skill_root):
-        raise SystemExit("refusing to export Claude package inside the skill root")
+    if package_root == skill_root or is_relative_to(package_root, skill_root) or is_relative_to(skill_root, package_root):
+        raise SystemExit("refusing to export Claude package inside or over the skill root")
     if is_relative_to(zip_path, skill_root):
         raise SystemExit("refusing to write Claude zip inside the skill root")
+
+
+def export_inventory(root: Path) -> dict:
+    reject_export_links(root)
+    return {
+        "directories": sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_dir()),
+        "files": {
+            path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(root.rglob("*")) if path.is_file() and path.relative_to(root).as_posix() != EXPORT_MARKER
+        },
+    }
+
+
+def prepare_export_root(package_root: Path, zip_path: Path) -> None:
+    if not package_root.exists():
+        return
+    marker = package_root / EXPORT_MARKER
+    try:
+        recorded = json.loads(marker.read_text(encoding="utf-8"))
+        inventory = export_inventory(package_root)
+        if {key: recorded.get(key) for key in inventory} != inventory:
+            raise ValueError("export contents changed")
+        if zip_path.exists() and recorded.get("archive_sha256") != hashlib.sha256(zip_path.read_bytes()).hexdigest():
+            raise ValueError("export archive changed or is not owned")
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"refusing to replace unowned or modified export: {package_root}: {exc}") from exc
+    shutil.rmtree(package_root)
+
+
+def mark_export_root(package_root: Path, zip_path: Path | None = None) -> None:
+    marker = export_inventory(package_root)
+    if zip_path is not None:
+        marker["archive_sha256"] = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    (package_root / EXPORT_MARKER).write_text(json.dumps(marker, sort_keys=True), encoding="utf-8")
 
 
 def validate_prompt_export_path(skill_root: Path, prompt_path: Path) -> None:
@@ -207,7 +273,7 @@ def copy_supporting_files(skill_root: Path, dest: Path) -> None:
         copy_tree(fixtures, dest / "fixtures")
 
 
-def write_install(path: Path, mode: str) -> None:
+def install_text(mode: str) -> str:
     if mode == "claude-code-skill":
         text = (
             "Copy the .claude folder from this package into your Claude Code project or home configuration.\n"
@@ -222,13 +288,17 @@ def write_install(path: Path, mode: str) -> None:
             "Legacy command package. Copy the .claude folder into your Claude Code project or home configuration.\n"
             "Then run /code-hygiene when you want the workflow.\n"
         )
-    path.write_text(text, encoding="utf-8")
+    return text
+
+
+def write_install(path: Path, mode: str) -> None:
+    path.write_text(install_text(mode), encoding="utf-8", newline="\n")
 
 
 def export_claude_code_skill(skill_root: Path, package_root: Path) -> None:
     skill_dest = package_root / ".claude" / "skills" / SKILL_NAME
     skill_dest.mkdir(parents=True, exist_ok=True)
-    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8")
+    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8", newline="\n")
     copy_supporting_files(skill_root, skill_dest)
     write_install(package_root / "INSTALL.txt", "claude-code-skill")
 
@@ -236,7 +306,7 @@ def export_claude_code_skill(skill_root: Path, package_root: Path) -> None:
 def export_claude_ai_skill(skill_root: Path, package_root: Path) -> None:
     skill_dest = package_root / SKILL_NAME
     skill_dest.mkdir(parents=True, exist_ok=True)
-    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8")
+    (skill_dest / "SKILL.md").write_text(read_skill_text(skill_root), encoding="utf-8", newline="\n")
     copy_supporting_files(skill_root, skill_dest)
 
 
@@ -248,7 +318,7 @@ def export_legacy_command(skill_root: Path, package_root: Path) -> None:
     command_dir.mkdir(parents=True, exist_ok=True)
     reference_dest.parent.mkdir(parents=True, exist_ok=True)
 
-    (command_dir / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8")
+    (command_dir / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8", newline="\n")
     copy_tree(skill_root / "references", reference_dest)
     copy_tree(skill_root / "scripts", script_dest)
     fixtures = skill_root / "fixtures"
@@ -261,14 +331,58 @@ def export_portable_prompt(skill_root: Path, out_dir: Path) -> None:
     prompt_path = out_dir / PORTABLE_PROMPT_NAME
     validate_prompt_export_path(skill_root, prompt_path)
     out_dir.mkdir(parents=True, exist_ok=True)
-    prompt_path.write_text(build_portable_prompt(skill_root), encoding="utf-8")
+    prompt_path.write_text(build_portable_prompt(skill_root), encoding="utf-8", newline="\n")
     print(f"Wrote {prompt_path}")
+
+
+def sync_repo(repo_root: Path) -> None:
+    """Refresh tracked distribution copies from the canonical trainer skill."""
+    source = repo_root / PACKAGE_DIRS["codex_skill"]
+    plugin = repo_root / PACKAGE_DIRS["codex_plugin_skill"]
+    claude_ai = repo_root / PACKAGE_DIRS["claude_ai_skill"]
+    command = repo_root / PACKAGE_DIRS["claude_command_package"]
+    if not source.is_dir() or not (repo_root / ".claude-plugin" / "marketplace.json").is_file() or not (repo_root / "plugins" / SKILL_NAME / ".codex-plugin" / "plugin.json").is_file():
+        raise SystemExit("repository or marketplace paths are incomplete")
+    reject_export_links(source)
+    directory_targets = [plugin, claude_ai, command]
+    directory_targets.extend(destination / name for destination in (claude_ai, command) for name in ("references", "scripts", "fixtures"))
+    file_targets = [
+        claude_ai / "SKILL.md",
+        repo_root / "code-hygiene-compounder-command" / ".claude" / "commands" / "code-hygiene.md",
+        repo_root / "portable-prompts" / PORTABLE_PROMPT_NAME,
+    ]
+    if unsafe_link(repo_root):
+        raise ValueError(f"unsafe sync root link: {repo_root}")
+    for target in directory_targets + file_targets:
+        try:
+            relative = target.relative_to(repo_root)
+        except ValueError as exc:
+            raise ValueError(f"sync target outside repository: {target}") from exc
+        ancestor = repo_root
+        for part in relative.parts:
+            ancestor /= part
+            if unsafe_link(ancestor):
+                raise ValueError(f"unsafe sync target link: {ancestor}")
+        if target.exists() and target in directory_targets:
+            reject_export_links(target)
+        if target.exists() and target in file_targets and not target.is_file():
+            raise ValueError(f"sync target is not a file: {target}")
+    copy_tree(source, plugin, extra_excludes=(".claude-plugin",))
+    claude_ai.mkdir(parents=True, exist_ok=True)
+    (claude_ai / "SKILL.md").write_text(read_skill_text(source), encoding="utf-8", newline="\n")
+    for name in ("references", "scripts", "fixtures"):
+        copy_tree(source / name, claude_ai / name)
+        copy_tree(source / name, command / name)
+    (repo_root / "code-hygiene-compounder-command" / ".claude" / "commands" / "code-hygiene.md").write_text(COMMAND_TEXT, encoding="utf-8", newline="\n")
+    portable = repo_root / "portable-prompts" / PORTABLE_PROMPT_NAME
+    portable.write_text(build_portable_prompt(source), encoding="utf-8", newline="\n")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create a Claude package from this Codex skill.")
-    parser.add_argument("--skill-root", type=Path, required=True)
-    parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--skill-root", type=Path)
+    parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--sync-repo", type=Path, help="Refresh only tracked distribution copies in this repository.")
     parser.add_argument(
         "--format",
         choices=["claude-code-skill", "claude-ai-skill", "legacy-command", "portable-prompt"],
@@ -278,15 +392,29 @@ def main() -> None:
     parser.add_argument("--zip-name", default="claude-code-hygiene-compounder.zip")
     args = parser.parse_args()
 
+    if args.sync_repo:
+        if args.skill_root or args.out_dir:
+            parser.error("--sync-repo cannot be combined with --skill-root or --out-dir")
+        sync_repo(args.sync_repo.resolve())
+        print(f"Synced tracked editions in {args.sync_repo}")
+        return
+    if not args.skill_root or not args.out_dir:
+        parser.error("--skill-root and --out-dir are required for exports")
+    reject_export_links(args.skill_root)
+
     if args.format == "portable-prompt":
         export_portable_prompt(args.skill_root, args.out_dir)
         return
 
-    package_root = args.out_dir / Path(args.zip_name).stem
+    zip_name = Path(args.zip_name)
+    if zip_name.name != args.zip_name or zip_name.suffix.lower() != ".zip" or not zip_name.stem:
+        parser.error("--zip-name must be a simple .zip filename")
+    package_root = args.out_dir / zip_name.stem
     zip_path = args.out_dir / args.zip_name
     validate_export_paths(args.skill_root, package_root, zip_path)
-    if package_root.exists():
-        shutil.rmtree(package_root)
+    if unsafe_link(zip_path) or (zip_path.exists() and not package_root.exists()):
+        raise SystemExit(f"refusing to replace unowned export archive: {zip_path}")
+    prepare_export_root(package_root, zip_path)
     if args.format == "claude-code-skill":
         export_claude_code_skill(args.skill_root, package_root)
     elif args.format == "claude-ai-skill":
@@ -294,7 +422,9 @@ def main() -> None:
     else:
         export_legacy_command(args.skill_root, package_root)
 
+    mark_export_root(package_root)
     zip_dir(package_root, zip_path)
+    mark_export_root(package_root, zip_path)
     print(f"Wrote {zip_path}")
 
 

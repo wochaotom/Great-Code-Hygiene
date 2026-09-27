@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import hashlib
 import json
@@ -16,18 +17,15 @@ sys.dont_write_bytecode = True
 
 from fixture_runner import load_fixtures
 from fixture_runner import validate_fixture
+from internal.package_meta import EXCLUDED_NAMES
 from pass100_runner import load_prompts
 
 
-EXCLUDED_NAMES = {
-    "runs",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".fixture-tmp",
-    ".fixture-work",
-    ".git",
-}
+ENTRYPOINTS = frozenset({
+    "analyze_runs.py", "export_claude_package.py", "fixture_runner.py", "guardrail_check.py",
+    "matrix_families.py", "matrix_runner.py", "pass100_runner.py", "promote_candidate.py",
+    "source_audit_plan.py", "validate_honing_report.py", "validate_package.py", "validate_results.py",
+})
 
 
 def count_lines(path: Path) -> int:
@@ -45,12 +43,12 @@ def file_digest(path: Path) -> str:
 def tree_fingerprint(root: Path) -> dict[str, str]:
     files: dict[str, str] = {}
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [name for name in dirnames if name not in EXCLUDED_NAMES]
+        dirnames[:] = [name for name in dirnames if name.casefold() not in EXCLUDED_NAMES]
         current_path = Path(current)
         for filename in filenames:
             path = current_path / filename
             relative = path.relative_to(root)
-            if any(part in EXCLUDED_NAMES for part in relative.parts):
+            if any(part.casefold() in EXCLUDED_NAMES for part in relative.parts):
                 continue
             files[relative.as_posix()] = file_digest(path)
     return files
@@ -170,25 +168,31 @@ def check_fixture_budget(skill_root: Path, args: argparse.Namespace, reporter: R
 
 def check_script_budget(skill_root: Path, args: argparse.Namespace, reporter: Reporter) -> None:
     scripts_dir = skill_root / "scripts"
-    scripts = sorted(path for path in scripts_dir.glob("*.py") if path.is_file())
-    check_maximum(reporter, "script count budget", len(scripts), args.max_scripts, "scripts")
-    oversized = [
-        f"{path.name}:{count_lines(path)}"
-        for path in scripts
-        if count_lines(path) > args.max_script_lines
-    ]
-    if oversized:
-        reporter.fail_check(
-            "script line budget",
-            "oversized scripts: " + ", ".join(oversized),
-            limit=args.max_script_lines,
-        )
+    actual = {path.name for path in scripts_dir.glob("*.py") if path.is_file()}
+    if actual != ENTRYPOINTS:
+        reporter.fail_check("script entrypoints", f"missing={sorted(ENTRYPOINTS - actual)}, extra={sorted(actual - ENTRYPOINTS)}")
     else:
-        reporter.pass_check(
-            "script line budget",
-            f"all scripts within {args.max_script_lines} lines",
-            limit=args.max_script_lines,
-        )
+        reporter.pass_check("script entrypoints", f"{len(actual)} approved entrypoints")
+
+    external: list[str] = []
+    local_modules = {path.stem for path in scripts_dir.glob("*.py")} | {"internal"}
+    for path in scripts_dir.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            names = [alias.name.split(".")[0] for alias in node.names] if isinstance(node, ast.Import) else ([node.module.split(".")[0]] if isinstance(node, ast.ImportFrom) and node.module else [])
+            for name in names:
+                if name not in sys.stdlib_module_names and name not in local_modules:
+                    external.append(f"{path.relative_to(scripts_dir)}:{name}")
+    if external:
+        reporter.fail_check("runtime dependencies", "third-party imports: " + ", ".join(sorted(set(external))))
+    else:
+        reporter.pass_check("runtime dependencies", "standard library and bundled modules only")
+
+    total_bytes = 0
+    for current, dirs, files in os.walk(skill_root):
+        dirs[:] = [name for name in dirs if name.casefold() not in EXCLUDED_NAMES]
+        total_bytes += sum((Path(current) / name).stat().st_size for name in files if name.casefold() not in EXCLUDED_NAMES)
+    check_maximum(reporter, "canonical distributable budget", total_bytes, args.max_distributable_bytes, "bytes")
 
 
 def check_source_budget(skill_root: Path, args: argparse.Namespace, reporter: Reporter) -> None:
@@ -202,9 +206,9 @@ def check_generated_noise(skill_root: Path, reporter: Reporter) -> None:
     for current, dirnames, filenames in os.walk(skill_root):
         current_path = Path(current)
         for dirname in list(dirnames):
-            if dirname in {".fixture-tmp", ".fixture-work", "__pycache__", ".pytest_cache", ".mypy_cache"}:
+            if dirname.casefold() in {".fixture-tmp", ".fixture-work", "__pycache__", ".pytest_cache", ".mypy_cache"}:
                 bad_dirs.append((current_path / dirname).relative_to(skill_root).as_posix())
-        dirnames[:] = [name for name in dirnames if name not in EXCLUDED_NAMES]
+        dirnames[:] = [name for name in dirnames if name.casefold() not in EXCLUDED_NAMES]
         for filename in filenames:
             if any(fnmatch.fnmatch(filename, pattern) for pattern in ("*.zip", "*.pyc", "*.pyo")):
                 bad_files.append((current_path / filename).relative_to(skill_root).as_posix())
@@ -267,8 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-training-lesson-sections", type=int, default=70)
     parser.add_argument("--max-fixtures", type=int, default=10)
     parser.add_argument("--max-fixture-coverage", type=float, default=0.25)
-    parser.add_argument("--max-scripts", type=int, default=12)
-    parser.add_argument("--max-script-lines", type=int, default=450)
+    parser.add_argument("--max-distributable-bytes", type=int, default=512 * 1024)
     parser.add_argument("--max-source-packs", type=int, default=25)
     parser.add_argument("--json", action="store_true")
     return parser
