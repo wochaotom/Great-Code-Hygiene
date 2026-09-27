@@ -26,6 +26,36 @@ def read_json(path: Path) -> dict:
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_clean_edition_symlink_is_not_accepted_as_package_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            outside = Path(temp) / "outside.md"
+            outside.write_text("unreviewed", encoding="utf-8")
+            link = clean / "code-hygiene" / "outside.md"
+            try:
+                link.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("link" in error for error in report["errors"]), report["errors"])
+
+    def test_package_parity_detects_nested_dist_and_extra_claude_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            nested = clean / "code-hygiene-compounder-claude-ai" / "code-hygiene-compounder" / "references" / "dist"
+            nested.mkdir()
+            (nested / "override.md").write_text("unreviewed", encoding="utf-8")
+            extra = clean / "code-hygiene-compounder-claude-ai" / "code-hygiene-compounder" / "hooks"
+            extra.mkdir()
+            (extra / "extra.md").write_text("unreviewed", encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("override.md" in error for error in report["errors"]), report["errors"])
+            self.assertTrue(any("hooks" in error for error in report["errors"]), report["errors"])
+
     def test_clean_repository_package_is_consistent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             clean = Path(temp) / "repo"

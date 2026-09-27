@@ -27,7 +27,7 @@ SYNTHETIC_PROMPTS = [item["id"] for item in load_prompts(SCRIPTS.parent / "refer
 
 
 class EvidenceBundleTests(unittest.TestCase):
-    def test_new_top_level_content_is_counted_for_size_gate(self) -> None:
+    def test_new_top_level_content_is_ineligible_not_counted_as_instruction_size(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             current, candidate = Path(temp) / "current", Path(temp) / "candidate"
             for tree in (current, candidate):
@@ -35,7 +35,36 @@ class EvidenceBundleTests(unittest.TestCase):
                 (tree / "SKILL.md").write_text("Original instructions\n", encoding="utf-8")
             (candidate / "guides").mkdir()
             (candidate / "guides" / "moved.md").write_text("Moved instructions\n", encoding="utf-8")
+            self.assertEqual(instruction_bytes(candidate), instruction_bytes(current))
+
+    def test_baseline_metadata_cannot_make_instructions_appear_smaller(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            current, candidate = Path(temp) / "current", Path(temp) / "candidate"
+            for tree in (current, candidate):
+                (tree / "references").mkdir(parents=True)
+                (tree / "SKILL.md").write_text("Same instructions\n", encoding="utf-8")
+            (current / "notes.md").write_text("Unrelated baseline metadata" * 20, encoding="utf-8")
+            (current / ".claude-plugin").mkdir()
+            (current / ".claude-plugin" / "plugin.json").write_text("optional metadata" * 20, encoding="utf-8")
+            (candidate / ".claude-plugin").mkdir()
+            (candidate / ".claude-plugin" / "plugin.json").write_text("{}", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("Same instructions with extra guidance\n", encoding="utf-8")
             self.assertGreater(instruction_bytes(candidate), instruction_bytes(current))
+
+    def test_case_variant_excluded_candidate_path_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            candidate = Path(temp)
+            (candidate / "references" / "Runs").mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "excluded"):
+                reject_excluded_directories(candidate)
+
+    def test_nested_distribution_metadata_is_rejected(self) -> None:
+        for nested in ("dist", ".claude-plugin"):
+            with self.subTest(nested=nested), tempfile.TemporaryDirectory() as temp:
+                candidate = Path(temp)
+                (candidate / "references" / nested).mkdir(parents=True)
+                with self.assertRaisesRegex(ValueError, "excluded"):
+                    reject_excluded_directories(candidate)
 
     def test_candidate_omitted_files_and_unregistered_roots_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -99,6 +128,37 @@ class EvidenceBundleTests(unittest.TestCase):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertFalse(decision["promotion_ready"])
             self.assertEqual(next(g for g in decision["gates"] if g["name"] == "source_grounding")["status"], "fail")
+
+    def test_package_validator_exit_becomes_failed_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            with patch("validate_package.validate", side_effect=SystemExit("invalid skill frontmatter")):
+                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertFalse(decision["promotion_ready"])
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "package_parity")["status"], "fail")
+
+    def test_plugin_metadata_change_fails_candidate_control_isolation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            plugin = candidate / ".claude-plugin" / "plugin.json"
+            plugin.write_text(plugin.read_text(encoding="utf-8") + " ", encoding="utf-8")
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle["candidate_fingerprint"] = tree_digest(candidate)
+            manifest.write_text(json.dumps(bundle), encoding="utf-8")
+            decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "candidate_control_isolation")["status"], "fail")
+
+    def test_score_gain_cannot_come_only_from_total_rounding(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            self.rewrite_artifact(manifest, "result-candidate", lambda payload: (
+                payload["scores"][0]["categories"].update(maintainability=5),
+                payload["scores"][0].update(total=90.0000000001, deductions=["baseline gap"]),
+            ))
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "predeclared_improvement")["status"], "fail")
 
     def test_transcript_evidence_must_use_run_output_and_accepted_expectation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

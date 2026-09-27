@@ -205,7 +205,8 @@ def validate_score_item(
         if numeric_total < 0 or numeric_total > 100:
             errors.append(f"{label}.total={total} outside 0..100")
         subtotal = sum(category_values.values())
-        if len(category_values) == len(CATEGORY_KEYS) and abs(numeric_total - subtotal) > 0.01:
+        tolerance = 1e-9 if schema_version == 2 else 0.01
+        if len(category_values) == len(CATEGORY_KEYS) and abs(numeric_total - subtotal) > tolerance:
             errors.append(f"{label}.total {total} does not match category sum {subtotal:g}")
 
     deductions = item.get("deductions")

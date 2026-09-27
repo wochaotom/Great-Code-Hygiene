@@ -6,6 +6,8 @@ import sys
 import os
 import json
 import subprocess
+import io
+from contextlib import redirect_stdout
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +19,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from internal.transaction import apply_transaction, journal_path, recover_transaction, write_journal
 from internal.evidence import tree_digest
+from promote_candidate import main as promote_main
 
 
 def approved_apply(candidate: Path, current: Path, after_phase=None) -> None:
@@ -42,7 +45,40 @@ class TransactionTests(unittest.TestCase):
                 approved_apply(candidate, current, after_phase=interrupt)
             recover_transaction(root / "SKILL")
             self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+            self.assertIn("skill", [path.name for path in root.iterdir() if path.is_dir()])
             self.assertFalse(journal_path(current).exists())
+
+    def test_second_writer_cannot_replace_existing_prepared_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "current", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+            original_write = write_journal
+            interleaved = False
+
+            def race(path: Path, payload: dict, *args, **kwargs) -> None:
+                nonlocal interleaved
+                if payload["phase"] == "prepared" and not interleaved:
+                    interleaved = True
+
+                    def interrupt(phase: str) -> None:
+                        if phase == "prepared":
+                            raise RuntimeError("interrupted competing apply")
+
+                    with self.assertRaisesRegex(RuntimeError, "interrupted competing apply"):
+                        approved_apply(candidate, current, after_phase=interrupt)
+                original_write(path, payload, *args, **kwargs)
+
+            with patch("internal.transaction.write_journal", side_effect=race):
+                with self.assertRaises(FileExistsError):
+                    approved_apply(candidate, current)
+            self.assertTrue(journal_path(current).is_file())
+            self.assertEqual(len(list(root.glob(".current.promotion-stage-*"))), 1)
+            recover_transaction(current)
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
 
     def test_cli_recovery_writes_requested_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -64,6 +100,54 @@ class TransactionTests(unittest.TestCase):
             record = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(record["recovered"], True)
             self.assertIn("decided_at", record)
+            self.assertEqual(record["action"], "rolled_back")
+            self.assertEqual(record["phase"], "backed_up")
+            self.assertEqual(record["installed_fingerprint"], tree_digest(current))
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+
+    def test_failed_recovery_is_logged_without_touching_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate, log = root / "current", root / "candidate", root / "recovery.jsonl"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupt(phase: str) -> None:
+                if phase == "backed_up":
+                    raise RuntimeError("interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                approved_apply(candidate, current, after_phase=interrupt)
+            journal = journal_path(current)
+            backup = Path(json.loads(journal.read_text(encoding="utf-8"))["backup"])
+            (backup / "SKILL.md").write_text("changed backup", encoding="utf-8")
+            completed = subprocess.run([sys.executable, "-B", str(SCRIPTS / "promote_candidate.py"), "--current", str(current), "--recover", "--log", str(log)], capture_output=True, text=True)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertTrue(journal.is_file())
+            record = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(record["recovered"], False)
+            self.assertIn("backup fingerprint mismatch", record["error"])
+
+    def test_failed_apply_is_logged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate, log = root / "current", root / "candidate", root / "apply.jsonl"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("---\nname: candidate\ndescription: test\n---\nnew\n", encoding="utf-8")
+            decision = {"promotion_ready": True, "baseline_fingerprint": tree_digest(current),
+                        "candidate_fingerprint": tree_digest(candidate), "gates": []}
+            argv = ["promote_candidate.py", "--current", str(current), "--candidate", str(candidate),
+                    "--evidence-bundle", str(root / "bundle.json"), "--apply", "--log", str(log)]
+            with patch.object(sys, "argv", argv), patch("promote_candidate.evaluate_bundle", return_value=decision), patch("promote_candidate.apply_transaction", side_effect=ValueError("injected stage failure")):
+                with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()):
+                    promote_main()
+            record = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+            self.assertFalse(record["applied"])
+            self.assertIn("injected stage failure", record["apply_error"])
             self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
 
     def test_recovery_accepts_same_aliased_parent_used_for_apply(self) -> None:

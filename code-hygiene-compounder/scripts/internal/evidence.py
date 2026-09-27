@@ -22,6 +22,7 @@ from validate_results import load_source_ids, validate_payload
 
 SKIP_NAMES = frozenset({"runs", "__pycache__", ".pytest_cache", ".mypy_cache", ".fixture-work", ".fixture-tmp", ".git"})
 PACKAGE_ROOTS = frozenset({"SKILL.md", ".claude-plugin", "agents", "fixtures", "references", "scripts"})
+FOLDED_SKIP_NAMES = frozenset(name.casefold() for name in SKIP_NAMES) | {"dist"}
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -51,7 +52,9 @@ def reject_excluded_directories(root: Path) -> None:
         base = Path(current)
         for name in dirs + files:
             path = base / name
-            if name in SKIP_NAMES:
+            if unsafe_link(path):
+                raise ValueError(f"candidate contains unsafe link: {path}")
+            if name.casefold() in FOLDED_SKIP_NAMES or (name.casefold() == ".claude-plugin" and base != root):
                 raise ValueError(f"candidate contains excluded path: {path}")
             if base == root and name not in PACKAGE_ROOTS:
                 raise ValueError(f"candidate contains unexpected root path: {path}")
@@ -94,16 +97,21 @@ def instruction_sizes(root: Path) -> tuple[int, int]:
     def fail(error: OSError) -> None:
         raise error
 
-    for current, dirs, files in os.walk(root, onerror=fail):
-        base = Path(current)
-        for name in list(dirs):
-            if unsafe_link(base / name):
-                raise ValueError(f"unsafe instruction path: {base / name}")
-        dirs[:] = [name for name in dirs if name not in SKIP_NAMES]
-        for name in files:
-            path = base / name
-            if name in SKIP_NAMES:
-                continue
+    for subtree in (root / "SKILL.md", references, root / "agents"):
+        if subtree.is_file():
+            files_to_count = [subtree]
+        elif subtree.is_dir():
+            files_to_count = []
+            for current, dirs, files in os.walk(subtree, onerror=fail):
+                base = Path(current)
+                for name in dirs:
+                    if unsafe_link(base / name):
+                        raise ValueError(f"unsafe instruction path: {base / name}")
+                dirs[:] = [name for name in dirs if name.casefold() not in FOLDED_SKIP_NAMES and name.casefold() != ".claude-plugin"]
+                files_to_count.extend(base / name for name in files if name.casefold() not in FOLDED_SKIP_NAMES)
+        else:
+            continue
+        for path in files_to_count:
             if unsafe_link(path) or not path.is_file():
                 raise ValueError(f"unsafe instruction file: {path}")
             content = path.read_bytes()
@@ -178,6 +186,7 @@ def control_hashes(accepted_root: Path) -> dict[str, str]:
         "rubric": digest(accepted_root / "references" / "PASS-100.md"),
         "policy": digest(accepted_root / "scripts" / "internal" / "policy.py"),
         "weights": digest(accepted_root / "references" / "source-weights.json"),
+        "plugin_manifest": digest(accepted_root / ".claude-plugin" / "plugin.json"),
         "verifier": tree_digest(accepted_root / "scripts"),
         "fixtures": tree_digest(accepted_root / "fixtures"),
     }
@@ -270,7 +279,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         controls_ok = separated and baseline_controls_match and bundle.get("controls") == actual_controls
         gate(gates, "accepted_controls", controls_ok,
              "controls match the baseline and external verifier" if controls_ok else "external verifier is not anchored to baseline controls")
-        candidate_controls = tree_digest(candidate / "scripts") == tree_digest(accepted / "scripts") and tree_digest(candidate / "fixtures") == actual_controls["fixtures"] and all(
+        candidate_controls = tree_digest(candidate / "scripts") == tree_digest(accepted / "scripts") and tree_digest(candidate / "fixtures") == actual_controls["fixtures"] and digest(candidate / ".claude-plugin" / "plugin.json") == actual_controls["plugin_manifest"] and all(
             digest(candidate / "references" / name) == digest(accepted / "references" / name)
             for name in ("eval-prompts.md", "PASS-100.md", "source-weights.json")
         )
@@ -370,7 +379,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         package_skill = package_root / "code-hygiene-compounder"
         package_ok = tree_digest(package_skill) == candidate_hash and validate(package_root, False)["valid"]
         gate(gates, "package_parity", package_ok, "all editions match candidate" if package_ok else "package validation or candidate parity failed")
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, KeyError, json.JSONDecodeError, SystemExit) as exc:
         gate(gates, "package_parity", False, str(exc))
 
     run_entries = bundle.get("runs")
@@ -596,8 +605,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     continue
                 for prompt_id, old in before.items():
                     new = after[prompt_id]
-                    baseline_totals.append(float(old["total"]))
-                    candidate_totals.append(float(new["total"]))
+                    baseline_totals.append(sum(float(value) for value in old["categories"].values()))
+                    candidate_totals.append(sum(float(value) for value in new["categories"].values()))
                     if prompt_id in critical:
                         for category in CRITICAL_CATEGORIES:
                             if new["categories"][category] < old["categories"][category]:

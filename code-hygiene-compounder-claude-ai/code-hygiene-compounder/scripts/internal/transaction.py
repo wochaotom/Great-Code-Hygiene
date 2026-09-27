@@ -29,7 +29,13 @@ def remove_tree(path: Path, parent: Path, prefix: str) -> None:
         shutil.rmtree(path)
 
 
-def write_journal(path: Path, payload: dict) -> None:
+def write_journal(path: Path, payload: dict, *, exclusive: bool = False) -> None:
+    if exclusive:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, indent=2, sort_keys=True))
+            handle.flush()
+            os.fsync(handle.fileno())
+        return
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("w", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, indent=2, sort_keys=True))
@@ -108,6 +114,7 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
     prefix = f".{current.name}.promotion-"
     stage = scoped(parent / f"{prefix}stage-{token}", parent, prefix)
     backup = scoped(parent / f"{prefix}backup-{token}", parent, prefix)
+    claimed = False
     try:
         shutil.copytree(candidate, stage, ignore=lambda directory, names: {
             name for name in names if name in SKIP_NAMES and (Path(directory) / name).is_dir()
@@ -123,7 +130,8 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
             "candidate_fingerprint": expected_candidate_fingerprint,
             "phase": "prepared",
         }
-        write_journal(journal, state)
+        write_journal(journal, state, exclusive=True)
+        claimed = True
         if after_phase:
             after_phase("prepared")
         if tree_digest(current) != expected_current_fingerprint:
@@ -156,7 +164,7 @@ def apply_transaction(candidate: Path, current: Path, expected_current_fingerpri
         journal.unlink()
         return backup
     except Exception:
-        if not journal.exists():
+        if not claimed or not journal.exists():
             remove_tree(stage, parent, prefix)
         raise
 
@@ -171,11 +179,13 @@ def recover_transaction(current: Path) -> Path | None:
         raise ValueError(f"no safe transaction journal: {journal}")
     state = json.loads(journal.read_text(encoding="utf-8"))
     parent = current.parent
+    recorded_current = Path(state.get("current", "")).absolute()
+    if state.get("version") != 1 or recorded_current != current or recorded_current.parent != parent or state.get("phase") not in {"prepared", "backed_up", "installed", "committed"}:
+        raise ValueError("transaction journal target mismatch")
+    current = recorded_current
     prefix = f".{current.name}.promotion-"
     stage = scoped(Path(state["stage"]), parent, prefix)
     backup = scoped(Path(state["backup"]), parent, prefix)
-    if state.get("version") != 1 or Path(state.get("current", "")).absolute() != current or state.get("phase") not in {"prepared", "backed_up", "installed", "committed"}:
-        raise ValueError("transaction journal target mismatch")
     if state["phase"] == "committed":
         if not current.exists() or tree_digest(current) != state.get("candidate_fingerprint"):
             raise ValueError("installed skill changed since installation; recovery requires manual inspection")

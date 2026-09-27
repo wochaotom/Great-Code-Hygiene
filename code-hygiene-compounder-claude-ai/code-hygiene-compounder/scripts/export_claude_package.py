@@ -124,7 +124,15 @@ def copy_tree(src: Path, dest: Path, extra_excludes: tuple[str, ...] = ()) -> No
     reject_export_links(src)
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(src, dest, symlinks=True, ignore=shutil.ignore_patterns(*EXCLUDED_NAMES, *extra_excludes))
+    source_root = src.resolve(strict=True)
+
+    def ignored(directory: str, names: list[str]) -> set[str]:
+        excluded = set(EXCLUDED_NAMES)
+        if Path(directory).resolve(strict=True) == source_root:
+            excluded.update(extra_excludes)
+        return set(names) & excluded
+
+    shutil.copytree(src, dest, symlinks=True, ignore=ignored)
     reject_export_links(dest)
 
 
@@ -227,21 +235,27 @@ def export_inventory(root: Path) -> dict:
     }
 
 
-def prepare_export_root(package_root: Path) -> None:
+def prepare_export_root(package_root: Path, zip_path: Path) -> None:
     if not package_root.exists():
         return
     marker = package_root / EXPORT_MARKER
     try:
         recorded = json.loads(marker.read_text(encoding="utf-8"))
-        if recorded != export_inventory(package_root):
+        inventory = export_inventory(package_root)
+        if {key: recorded.get(key) for key in inventory} != inventory:
             raise ValueError("export contents changed")
+        if zip_path.exists() and recorded.get("archive_sha256") != hashlib.sha256(zip_path.read_bytes()).hexdigest():
+            raise ValueError("export archive changed or is not owned")
     except (OSError, ValueError) as exc:
         raise SystemExit(f"refusing to replace unowned or modified export: {package_root}: {exc}") from exc
     shutil.rmtree(package_root)
 
 
-def mark_export_root(package_root: Path) -> None:
-    (package_root / EXPORT_MARKER).write_text(json.dumps(export_inventory(package_root), sort_keys=True), encoding="utf-8")
+def mark_export_root(package_root: Path, zip_path: Path | None = None) -> None:
+    marker = export_inventory(package_root)
+    if zip_path is not None:
+        marker["archive_sha256"] = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    (package_root / EXPORT_MARKER).write_text(json.dumps(marker, sort_keys=True), encoding="utf-8")
 
 
 def validate_prompt_export_path(skill_root: Path, prompt_path: Path) -> None:
@@ -371,7 +385,9 @@ def main() -> None:
     package_root = args.out_dir / zip_name.stem
     zip_path = args.out_dir / args.zip_name
     validate_export_paths(args.skill_root, package_root, zip_path)
-    prepare_export_root(package_root)
+    if unsafe_link(zip_path) or (zip_path.exists() and not package_root.exists()):
+        raise SystemExit(f"refusing to replace unowned export archive: {zip_path}")
+    prepare_export_root(package_root, zip_path)
     if args.format == "claude-code-skill":
         export_claude_code_skill(args.skill_root, package_root)
     elif args.format == "claude-ai-skill":
@@ -381,6 +397,7 @@ def main() -> None:
 
     mark_export_root(package_root)
     zip_dir(package_root, zip_path)
+    mark_export_root(package_root, zip_path)
     print(f"Wrote {zip_path}")
 
 

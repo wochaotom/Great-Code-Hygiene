@@ -12,8 +12,8 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from internal.evidence import evaluate_bundle, unsafe_link
-from internal.transaction import apply_transaction, recover_transaction
+from internal.evidence import digest, evaluate_bundle, tree_digest, unsafe_link
+from internal.transaction import apply_transaction, journal_path, recover_transaction
 from validate_honing_report import load_json as load_honing_json
 from validate_honing_report import validate_report as validate_honing_report_payload
 
@@ -194,10 +194,23 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.recover:
-        if args.apply or args.score or args.evidence_bundle or args.candidate:
+        if args.apply or args.score or args.evidence_bundle or args.candidate or args.baseline_average is not None or args.honing_report or args.require_honing_report or args.allow_non_major_evidence:
             parser.error("--recover accepts only --current and optional --log")
-        retained_backup = recover_transaction(args.current)
-        decision = {"decided_at": utc_now(), "recovered": True, "current": str(args.current), "retained_backup": str(retained_backup) if retained_backup else None}
+        journal = journal_path(args.current.absolute())
+        phase = None
+        try:
+            if journal.is_file() and not unsafe_link(journal):
+                state = json.loads(journal.read_text(encoding="utf-8"))
+                phase = state.get("phase") if isinstance(state, dict) else None
+            retained_backup = recover_transaction(args.current)
+            action = "commit_closed" if phase == "committed" else "cleared_prepared" if phase == "prepared" else "rolled_back"
+            decision = {"decided_at": utc_now(), "recovered": True, "current": str(args.current), "journal": str(journal), "phase": phase, "action": action, "installed_fingerprint": tree_digest(args.current), "retained_backup": str(retained_backup) if retained_backup else None}
+        except (Exception, SystemExit) as exc:
+            decision = {"decided_at": utc_now(), "recovered": False, "current": str(args.current), "journal": str(journal), "phase": phase, "error": str(exc)}
+            if args.log:
+                append_decision_log(args.log, decision)
+            print(json.dumps(decision, indent=2, sort_keys=True))
+            raise SystemExit(1) from exc
         if args.log:
             append_decision_log(args.log, decision)
         print(json.dumps(decision, indent=2, sort_keys=True))
@@ -234,7 +247,10 @@ def main() -> None:
         }
     else:
         if current and candidate:
-            decision = evaluate_bundle(args.evidence_bundle, current, candidate, Path(__file__).resolve().parents[1])
+            try:
+                decision = evaluate_bundle(args.evidence_bundle, current, candidate, Path(__file__).resolve().parents[1])
+            except (Exception, SystemExit) as exc:
+                decision = {"promotion_ready": False, "gates": [{"name": "evaluation", "status": "fail", "detail": str(exc)}], "evaluation_error": str(exc)}
         else:
             decision = {"promotion_ready": False, "gates": []}
         if args.baseline_average is not None or args.honing_report or args.require_honing_report or args.allow_non_major_evidence:
@@ -247,13 +263,28 @@ def main() -> None:
         "applied": False,
         "errors": errors,
     })
+    if args.evidence_bundle and args.evidence_bundle.is_file():
+        try:
+            decision["evidence_bundle_sha256"] = digest(args.evidence_bundle)
+        except OSError as exc:
+            errors.append(f"evidence bundle cannot be hashed: {exc}")
     if errors:
         decision["promotion_ready"] = False
 
     if decision["promotion_ready"] and args.apply:
-        retained_backup = apply_transaction(candidate, current, decision["baseline_fingerprint"], decision["candidate_fingerprint"])
-        decision["applied"] = True
-        decision["retained_backup"] = str(retained_backup)
+        try:
+            retained_backup = apply_transaction(candidate, current, decision["baseline_fingerprint"], decision["candidate_fingerprint"])
+            decision["applied"] = True
+            decision["retained_backup"] = str(retained_backup)
+        except (Exception, SystemExit) as exc:
+            decision["apply_error"] = str(exc)
+            decision["errors"].append(f"apply failed: {exc}")
+            decision["journal"] = str(journal_path(current))
+            decision["promotion_ready"] = False
+            if args.log:
+                append_decision_log(args.log, decision)
+            print(json.dumps(decision, indent=2, sort_keys=True))
+            raise SystemExit(1) from exc
 
     if args.log:
         append_decision_log(args.log, decision)

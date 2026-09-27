@@ -338,8 +338,10 @@ A promotion also requires structural budgets, package parity, no mean or
 critical-category regression on any evaluated prompt,
 a focused average of at least 85, and a predeclared gain (or equal behavior with
 smaller active instructions). For equal-score promotions, the conservative size
-check counts every distributable file in the skill tree, excluding preserved
-runtime data. Candidate roots outside the declared package layout are rejected.
+check counts `SKILL.md` and every eligible file under `references/` and `agents/`
+in both trees. Plugin metadata and other non-instruction files cannot supply a
+size reduction; the candidate plugin manifest must match accepted controls.
+Candidate roots outside the declared package layout are rejected.
 It requires at least 32 fewer bytes and 16 fewer non-whitespace bytes; moving
 text into another extension or trimming only whitespace does not qualify.
 Candidate trees containing excluded runtime or metadata paths are rejected,

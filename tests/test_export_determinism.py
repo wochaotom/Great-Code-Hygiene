@@ -20,6 +20,31 @@ from internal.evidence import tree_digest, unsafe_link
 
 
 class ExportDeterminismTests(unittest.TestCase):
+    def test_cli_does_not_replace_unowned_zip_without_export_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "personal.zip"
+            archive.write_bytes(b"private archive")
+            completed = subprocess.run([sys.executable, "-B", str(SCRIPTS / "export_claude_package.py"),
+                                        "--skill-root", str(SCRIPTS.parent), "--out-dir", str(root),
+                                        "--zip-name", archive.name, "--format", "claude-ai-skill"], capture_output=True, text=True)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertEqual(archive.read_bytes(), b"private archive")
+
+    def test_cli_does_not_replace_modified_zip_even_with_owned_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            command = [sys.executable, "-B", str(SCRIPTS / "export_claude_package.py"),
+                       "--skill-root", str(SCRIPTS.parent), "--out-dir", str(root),
+                       "--zip-name", "smoke.zip", "--format", "claude-ai-skill"]
+            first = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            (root / "smoke.zip").write_bytes(b"user archive")
+            second = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(second.returncode, 0)
+            self.assertEqual((root / "smoke.zip").read_bytes(), b"user archive")
+            self.assertTrue((root / "smoke" / ".great-code-hygiene-export.json").is_file())
+
     def test_cli_archives_do_not_ship_export_ownership_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

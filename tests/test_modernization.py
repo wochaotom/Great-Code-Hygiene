@@ -17,10 +17,11 @@ sys.path.insert(0, str(SCRIPTS))
 
 from fixture_runner import classify_test_outcome, parse_test_report, protected_file_failures, run_fixture_command, run_transcript_fixture, validate_command, validate_fixture
 from pass100_runner import CATEGORY_KEYS, cmd_score, load_failure_ids, select_batch
+from internal.policy import RUBRIC_CAPS
 from promote_candidate import resolve_existing_dir, validate_apply_target
 from source_audit_plan import build_context_index, context_role, context_values, query_context, READ_WHEN_RULES
 from validate_honing_report import validate_report
-from validate_results import load_json, validate_payload
+from validate_results import load_json, validate_payload, validate_score_item
 
 
 def score(prompt_id: str, total: object = 100) -> dict:
@@ -44,6 +45,14 @@ def result(item: dict) -> dict:
 
 
 class ResultValidationTests(unittest.TestCase):
+    def test_versioned_total_cannot_exceed_category_sum_by_score_slack(self) -> None:
+        categories = dict(CATEGORY_KEYS)
+        categories["maintainability"] = 5
+        item = {"prompt_id": "HYG-001", "categories": categories, "total": 90.005,
+                "deductions": ["baseline gap"], "lessons": [], "rubric_flags": {key: False for key in RUBRIC_CAPS}}
+        _, _, checked = validate_score_item(item, 0, {"HYG-001"}, None, None, schema_version=2)
+        self.assertTrue(any("does not match category sum" in error for error in checked.get("_errors", [])))
+
     def test_honing_report_rejects_nonfinite_scores(self) -> None:
         report = {"run_type": "source-grounded", "activated_sources": ["nist-ssdf"], "principles_checked": ["tests"], "checklist_results": [{"source_id": "nist-ssdf", "checked": ["tests"]}], "pass100_score": 90, "promotion_decision": "reject", "lessons": []}
         self.assertEqual(validate_report(report), [])

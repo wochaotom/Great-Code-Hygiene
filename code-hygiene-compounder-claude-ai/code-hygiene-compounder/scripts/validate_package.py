@@ -12,11 +12,13 @@ import sys
 from pathlib import Path
 sys.dont_write_bytecode = True
 from internal.package_meta import PACKAGE_DIRS
+from internal.package_meta import FUNCTION_ONLY_DIR, SKELETON_DIR
 from internal.package_meta import PLUGIN_VERSION
 from export_claude_package import COMMAND_TEXT
 from export_claude_package import EXCLUDED_NAMES
 from export_claude_package import build_portable_prompt
 from export_claude_package import read_skill_text
+from export_claude_package import reject_export_links
 from source_audit_plan import context_index_errors
 EXPECTED_NATIVE_AI_SKILL_FILES = {Path('.agents/skills/code-hygiene/SKILL.md'), Path('.cursor/skills/code-hygiene/SKILL.md')}
 EXPECTED_SKILL_FILES = {Path('code-hygiene/SKILL.md'), Path('code-hygiene-skeleton/SKILL.md'), Path('code-hygiene-compounder/SKILL.md'), Path('code-hygiene-compounder-claude-ai/code-hygiene-compounder/SKILL.md'), Path('plugins/code-hygiene-compounder/skills/code-hygiene-compounder/SKILL.md')} | EXPECTED_NATIVE_AI_SKILL_FILES
@@ -42,7 +44,7 @@ COMMAND_REQUIRED_SNIPPETS = ('smallest deterministic feedback loop', 'evidence-r
 CACHE_DIR_NAMES = {'__pycache__', '.pytest_cache', '.mypy_cache'}
 GENERATED_FILE_PATTERNS = ('*.zip', '*.pyc', '*.pyo')
 ALWAYS_SKIP_DIR_NAMES = {'.git', 'dist', '.fixture-tmp', '.fixture-work'}
-SYNC_SKIP_NAMES = EXCLUDED_NAMES | {'.claude-plugin'}
+SYNC_SKIP_NAMES = EXCLUDED_NAMES
 def as_repo_path(path: Path, repo_root: Path) -> str:
     try:
         return path.relative_to(repo_root).as_posix()
@@ -53,7 +55,7 @@ def normalize_relative(path: Path, repo_root: Path) -> Path:
 def iter_visible_files(root: Path) -> list[Path]:
     files: list[Path] = []
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES]
+        dirnames[:] = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES or (name == 'dist' and Path(current) != root)]
         current_path = Path(current)
         for filename in filenames:
             files.append(current_path / filename)
@@ -61,7 +63,7 @@ def iter_visible_files(root: Path) -> list[Path]:
 def iter_visible_dirs(root: Path) -> list[Path]:
     dirs: list[Path] = []
     for current, dirnames, _filenames in os.walk(root):
-        visible = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES]
+        visible = [name for name in dirnames if name not in ALWAYS_SKIP_DIR_NAMES or (name == 'dist' and Path(current) != root)]
         dirnames[:] = visible
         current_path = Path(current)
         dirs.extend((current_path / name for name in visible))
@@ -74,11 +76,11 @@ def file_digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(65536), b''):
             digest.update(chunk)
     return digest.hexdigest()
-def tree_fingerprint(root: Path) -> dict[str, str]:
+def tree_fingerprint(root: Path, skip_root_claude_plugin: bool = False) -> dict[str, str]:
     files: dict[str, str] = {}
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [name for name in dirnames if name not in SYNC_SKIP_NAMES and name not in ALWAYS_SKIP_DIR_NAMES]
         current_path = Path(current)
+        dirnames[:] = [name for name in dirnames if name not in SYNC_SKIP_NAMES and not (skip_root_claude_plugin and current_path == root and name == '.claude-plugin')]
         for filename in filenames:
             path = current_path / filename
             relative = path.relative_to(root)
@@ -366,11 +368,11 @@ def check_context_index(codex_root: Path, reporter: Reporter) -> None:
     errors = context_index_errors(codex_root, existing)
     detail = '; '.join(errors[:8]) if errors else f'{len(existing.get("files", []))} indexed files are current'
     (reporter.fail_check if errors else reporter.pass_check)('context index', detail)
-def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter) -> None:
+def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter, skip_source_root_claude_plugin: bool = False) -> None:
     if not source.is_dir() or not target.is_dir():
         reporter.fail_check(label, 'source or target directory is missing')
         return
-    source_files = tree_fingerprint(source)
+    source_files = tree_fingerprint(source, skip_source_root_claude_plugin)
     target_files = tree_fingerprint(target)
     missing = sorted(set(source_files) - set(target_files))
     extra = sorted(set(target_files) - set(source_files))
@@ -386,11 +388,37 @@ def check_tree_sync(source: Path, target: Path, label: str, reporter: Reporter) 
         reporter.fail_check(label, '; '.join(details))
     else:
         reporter.pass_check(label, f'{len(source_files)} files match')
+def check_edition_root(root: Path, expected: set[str], label: str, reporter: Reporter) -> None:
+    if not root.is_dir():
+        reporter.fail_check(label, f'missing edition root: {root}')
+        return
+    actual = {path.name for path in root.iterdir()}
+    if actual != expected:
+        reporter.fail_check(label, f'root entries differ: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}')
+    else:
+        reporter.pass_check(label, 'edition root contains only declared entries')
+
+
+def check_edition_links(repo_root: Path, reporter: Reporter) -> bool:
+    edition_paths = dict(PACKAGE_DIRS)
+    edition_paths.update(clean=FUNCTION_ONLY_DIR, skeleton=SKELETON_DIR)
+    for label, relative in edition_paths.items():
+        root = repo_root / relative
+        try:
+            reject_export_links(root)
+        except (OSError, ValueError) as exc:
+            reporter.fail_check(f'{label} links', str(exc))
+            return False
+    return True
+
+
 def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
     codex_root = repo_root / PACKAGE_DIRS['codex_skill']
     codex_plugin_root = repo_root / PACKAGE_DIRS['codex_plugin_skill']
     claude_ai_root = repo_root / PACKAGE_DIRS['claude_ai_skill']
     command_root = repo_root / PACKAGE_DIRS['claude_command_package']
+    check_edition_root(claude_ai_root, {'SKILL.md', 'references', 'scripts', 'fixtures'}, 'Claude AI root layout', reporter)
+    check_edition_root(command_root, {'references', 'scripts', 'fixtures'}, 'Claude command root layout', reporter)
     if (claude_ai_root / 'SKILL.md').is_file():
         expected = read_skill_text(codex_root).replace('\r\n', '\n')
         actual = read_text(claude_ai_root / 'SKILL.md')
@@ -406,7 +434,7 @@ def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
             reporter.pass_check('Claude command sync', 'command text matches export template')
         else:
             reporter.fail_check('Claude command sync', 'Claude command text is stale')
-    check_tree_sync(codex_root, codex_plugin_root, 'Codex plugin skill sync', reporter)
+    check_tree_sync(codex_root, codex_plugin_root, 'Codex plugin skill sync', reporter, skip_source_root_claude_plugin=True)
     for relative in ('references', 'scripts', 'fixtures'):
         source = codex_root / relative
         if not source.exists():
@@ -416,6 +444,8 @@ def check_export_sync(repo_root: Path, reporter: Reporter) -> None:
 def validate(repo_root: Path, allow_runs: bool) -> dict:
     reporter = Reporter()
     repo_root = repo_root.resolve()
+    if not check_edition_links(repo_root, reporter):
+        return {'valid': False, 'repo_root': str(repo_root), 'checks': reporter.checks, 'errors': reporter.errors, 'warnings': reporter.warnings}
     check_expected_paths(repo_root, reporter)
     check_instance_counts(repo_root, reporter)
     check_native_ai_entrypoints(repo_root, reporter)
