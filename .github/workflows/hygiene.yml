@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  package-and-fixtures:
+  package-matrix:
     strategy:
       fail-fast: false
       matrix:
@@ -106,3 +106,36 @@ jobs:
 
       - name: Analyze PASS-100 run
         run: python -B code-hygiene-compounder/scripts/analyze_runs.py --results ci-pass100-result.json --suite code-hygiene-compounder/references/eval-prompts.md --source-weights code-hygiene-compounder/references/source-weights.json
+
+  package-and-fixtures:
+    needs: package-matrix
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all package matrix checks
+        env:
+          MATRIX_RESULT: ${{ needs.package-matrix.result }}
+        run: test "$MATRIX_RESULT" = success
+
+  windows-smoke:
+    needs: package-matrix
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Validate Windows package and fixture baselines
+        shell: pwsh
+        run: |
+          python -B code-hygiene-compounder/scripts/validate_package.py --repo-root . --doctor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures baseline
+          exit $LASTEXITCODE
