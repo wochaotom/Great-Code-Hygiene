@@ -98,6 +98,8 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def select_batch(prompts: list[dict], mode: str, seed: int | None, limit: int | None,
                  categories: list[str] | None = None, failure_ids: set[str] | None = None) -> list[dict]:
+    if limit is not None and mode != "sample":
+        raise SystemExit("--limit is available only in sample mode")
     if mode == "full":
         selected = prompts
     elif mode == "smoke":
@@ -136,8 +138,6 @@ def select_batch(prompts: list[dict], mode: str, seed: int | None, limit: int | 
         selected = rng.sample(prompts, min(count, len(prompts)))
     else:
         raise SystemExit(f"Unknown mode: {mode}")
-    if limit and mode != "sample":
-        selected = selected[:limit]
     return selected
 
 

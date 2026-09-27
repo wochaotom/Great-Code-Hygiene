@@ -17,7 +17,7 @@ SCRIPTS_ROOT = REPO_ROOT / "code-hygiene-compounder" / "scripts"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import validate_package  # noqa: E402
-from export_claude_package import zip_dir  # noqa: E402
+from export_claude_package import sync_repo, zip_dir  # noqa: E402
 
 
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -28,6 +28,38 @@ def read_json(path: Path) -> dict:
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_clean_and_skeleton_reject_training_machinery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            for relative in ("code-hygiene", "code-hygiene-skeleton", ".agents/skills/code-hygiene", ".cursor/skills/code-hygiene"):
+                path = clean / relative / "scripts" / "promote_candidate.py"
+                path.parent.mkdir()
+                path.write_text("print('training')\n", encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            for relative in ("code-hygiene", "code-hygiene-skeleton", ".agents/skills/code-hygiene", ".cursor/skills/code-hygiene"):
+                self.assertTrue(any(relative in error for error in report["errors"]), report["errors"])
+
+    def test_sync_refuses_linked_mirror_ancestor_before_touching_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            clean = root / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            skills = clean / "plugins" / "code-hygiene-compounder" / "skills"
+            outside = root / "outside"
+            outside.mkdir()
+            marker = outside / "private.txt"
+            marker.write_text("keep", encoding="utf-8")
+            shutil.rmtree(skills)
+            try:
+                skills.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            with self.assertRaisesRegex(ValueError, "unsafe.*link"):
+                sync_repo(clean)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
+
     def test_matching_excluded_distribution_content_cannot_ship(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             clean = Path(temp) / "repo"

@@ -44,11 +44,15 @@ def parse_test_report(stdout: str, framework: str) -> dict | None:
         counts = summaries[0].get("counts")
         if not isinstance(counts, dict):
             return None
-        test_events = [event for event in events if event.get("event") in {"test:pass", "test:fail"}]
-        if any(not isinstance(event.get("name"), str) or not event["name"] for event in test_events):
+        result_events = [event for event in events if event.get("event") in {"test:pass", "test:fail"}]
+        if any(event.get("test_type") not in {"test", "suite"} for event in result_events):
             return None
-        failures = [event for event in events if event.get("event") == "test:fail" and event.get("error_code") == "ERR_ASSERTION"]
-        errors = [event for event in events if event.get("event") == "test:fail" and event not in failures]
+        suite_errors = [event for event in result_events if event.get("test_type") == "suite" and event.get("event") == "test:fail"]
+        test_events = [event for event in result_events if event.get("test_type") == "test"]
+        if any(not isinstance(event.get("name"), str) or not event["name"] for event in result_events):
+            return None
+        failures = [event for event in test_events if event.get("event") == "test:fail" and event.get("error_code") == "ERR_ASSERTION"]
+        errors = [event for event in test_events if event.get("event") == "test:fail" and event not in failures]
         return {
             "framework": framework,
             "tests_run": counts.get("tests"),
@@ -56,6 +60,7 @@ def parse_test_report(stdout: str, framework: str) -> dict | None:
             "todo": counts.get("todo", 0),
             "failures": sorted(event["name"] for event in failures),
             "errors": sorted(event["name"] for event in errors),
+            "suite_errors": sorted(event["name"] for event in suite_errors),
             "passed": sorted(event["name"] for event in test_events if event.get("event") == "test:pass" and not event.get("skip") and not event.get("todo")),
         }
     return None
@@ -86,6 +91,8 @@ def classify_test_outcome(command_result: dict, signature: dict) -> dict:
         return {"outcome": "infrastructure_error", "signature_matched": False}
     report = command_result.get("test_report")
     if not isinstance(report, dict):
+        return {"outcome": "unexpected_test_error", "signature_matched": False}
+    if report.get("suite_errors"):
         return {"outcome": "unexpected_test_error", "signature_matched": False}
     if signature.get("framework") and report.get("framework") != signature["framework"]:
         return {"outcome": "unexpected_test_error", "signature_matched": False}
@@ -344,7 +351,7 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
                 "test_report": report,
                 "exit_code": completed.returncode,
                 "duration_ms": duration_ms,
-                "tests_passed": completed.returncode == 0 and isinstance(report, dict) and (executed_test_count(report) or 0) > 0 and not report.get("failures") and not report.get("errors"),
+                "tests_passed": completed.returncode == 0 and isinstance(report, dict) and (executed_test_count(report) or 0) > 0 and not report.get("failures") and not report.get("errors") and not report.get("suite_errors"),
                 "stdout_tail": tail(completed.stdout),
                 "stderr_tail": tail(completed.stderr),
                 "timed_out": False,

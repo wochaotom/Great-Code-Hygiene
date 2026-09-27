@@ -656,7 +656,7 @@ class TransactionTests(unittest.TestCase):
             real_replace = os.replace
 
             def write_before_discard(source, destination):
-                if Path(source) == current and ".promotion-discard-" in Path(destination).name:
+                if Path(source).resolve(strict=False) == current.resolve(strict=False) and ".promotion-discard-" in Path(destination).name:
                     late = current / "Runs" / "late.txt"
                     late.parent.mkdir()
                     late.write_text("preserve", encoding="utf-8")
@@ -691,7 +691,7 @@ class TransactionTests(unittest.TestCase):
 
             def fail_once(source, destination):
                 nonlocal blocked
-                if Path(source) == backup and Path(destination) == current and not blocked:
+                if Path(source).resolve(strict=False) == backup.resolve(strict=False) and Path(destination).resolve(strict=False) == current.resolve(strict=False) and not blocked:
                     blocked = True
                     raise OSError("injected recovery interruption")
                 return real_replace(source, destination)

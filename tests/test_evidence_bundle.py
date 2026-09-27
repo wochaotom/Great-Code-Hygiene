@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,7 @@ sys.path.insert(0, str(SCRIPTS))
 from internal.evidence import artifact_registry, control_hashes, evaluate_bundle, instruction_bytes, reject_excluded_directories, tree_digest, verify_transcript_fixture
 from internal.policy import CATEGORY_KEYS, RUBRIC_CAPS
 from pass100_runner import load_prompts
+from source_audit_plan import build_context_index
 
 
 SYNTHETIC_CATEGORY = "Documentation and Comments"
@@ -27,6 +29,22 @@ SYNTHETIC_PROMPTS = [item["id"] for item in load_prompts(SCRIPTS.parent / "refer
 
 
 class EvidenceBundleTests(unittest.TestCase):
+    def test_hardlinked_artifact_alias_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first, alias = root / "first.json", root / "alias.json"
+            first.write_text("{}", encoding="utf-8")
+            try:
+                os.link(first, alias)
+            except OSError as exc:
+                self.skipTest(f"hard links unavailable: {exc}")
+            file_hash = hashlib.sha256(first.read_bytes()).hexdigest()
+            _, errors = artifact_registry(root / "bundle.json", [
+                {"id": "first", "path": first.name, "sha256": file_hash},
+                {"id": "alias", "path": alias.name, "sha256": file_hash},
+            ])
+            self.assertTrue(any("physical file" in error for error in errors), errors)
+
     def test_new_top_level_content_is_ineligible_not_counted_as_instruction_size(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             current, candidate = Path(temp) / "current", Path(temp) / "candidate"
@@ -304,10 +322,13 @@ class EvidenceBundleTests(unittest.TestCase):
         self.rewrite_artifact(manifest, "reviewer-execution", lambda payload: payload.update(output_artifact="reviewer-output", output_sha256=output_hash, reviewer_id="independent-test-reviewer"))
 
     def make_synthetic_bundle(self, root: Path) -> tuple[Path, Path, Path]:
-        current, candidate, package = root / "current", root / "candidate", root / "package"
+        current, candidate, package = root / "current", root / "candidate" / "code-hygiene-compounder", root / "package"
         for target in (current, candidate):
             shutil.copytree(SCRIPTS.parent, target, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "runs"))
         (candidate / "SKILL.md").write_text((candidate / "SKILL.md").read_text(encoding="utf-8") + "\nX", encoding="utf-8")
+        (candidate / "references" / "context-index.json").write_text(
+            json.dumps(build_context_index(candidate), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         package.mkdir()
         shutil.copytree(candidate, package / "code-hygiene-compounder")
         controls = control_hashes(SCRIPTS.parent)
@@ -358,10 +379,30 @@ class EvidenceBundleTests(unittest.TestCase):
             with patch("validate_package.validate", return_value={"valid": True}):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
                 self.assertTrue(decision["promotion_ready"], decision["gates"])
+                self.assertEqual(next(g for g in decision["gates"] if g["name"] == "hard_target_count")["status"], "not-applicable")
                 (Path(temp) / "output-candidate.json").write_text("altered", encoding="utf-8")
                 tampered = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
                 self.assertFalse(tampered["promotion_ready"])
                 self.assertEqual(tampered["gates"][1]["name"], "artifact_integrity")
+
+    def test_accepted_path_uses_real_package_parity(self) -> None:
+        from export_claude_package import sync_repo
+        from validate_package import validate
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest, current, candidate = self.make_synthetic_bundle(root)
+            package = root / "package"
+            shutil.rmtree(package)
+            shutil.copytree(ROOT, package, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            shutil.copy2(candidate / "SKILL.md", package / "code-hygiene-compounder" / "SKILL.md")
+            shutil.copy2(candidate / "references" / "context-index.json", package / "code-hygiene-compounder" / "references" / "context-index.json")
+            sync_repo(package)
+            report = validate(package, False)
+            self.assertTrue(report["valid"], report["errors"])
+            decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "package_parity")["status"], "pass", decision["gates"])
+            self.assertTrue(decision["promotion_ready"], decision["gates"])
 
     def test_diagnostic_only_bundle_cannot_authorize_promotion(self) -> None:
         for marker in (True, "true", False):
@@ -509,6 +550,23 @@ class EvidenceBundleTests(unittest.TestCase):
                 meaningful = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertTrue(meaningful["promotion_ready"], meaningful["gates"])
 
+            def trade_prompt_scores(payload: dict) -> None:
+                first, second = payload["scores"][:2]
+                first["categories"]["maintainability"] = 6
+                first["total"] = 91
+                second["categories"]["maintainability"] = 14
+                second["total"] = 99
+                second["deductions"] = ["minor tradeoff"]
+
+            self.rewrite_artifact(manifest, "result-candidate", trade_prompt_scores)
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                traded = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in traded["gates"] if g["name"] == "matched_trials")["status"], "pass", traded["gates"])
+            self.assertEqual(next(g for g in traded["gates"] if g["name"] == "baseline_comparison")["status"], "pass", traded["gates"])
+            self.assertFalse(traded["promotion_ready"], traded["gates"])
+            self.assertEqual(next(g for g in traded["gates"] if g["name"] == "predeclared_improvement")["status"], "fail")
+
     def test_mixed_cohort_and_rubric_cap_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
@@ -610,6 +668,18 @@ class EvidenceBundleTests(unittest.TestCase):
             ))
             self.rebind_review(manifest)
             with patch("validate_package.validate", return_value={"valid": True}):
+                missing_always = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in missing_always["gates"] if g["name"] == "source_grounding")["status"], "fail")
+
+            self.rewrite_artifact(manifest, "honing", lambda payload: (
+                payload.update(activated_sources=["google-eng-practices", "google-testing", "nist-ssdf"]),
+                payload["checklist_results"].extend([
+                    {"source_id": "google-eng-practices", "checked": ["review"]},
+                    {"source_id": "google-testing", "checked": ["tests"]},
+                ]),
+            ))
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
                 approved = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertTrue(approved["promotion_ready"], approved["gates"])
 
@@ -660,6 +730,22 @@ class EvidenceBundleTests(unittest.TestCase):
                     decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
                 self.assertEqual(next(g for g in decision["gates"] if g["name"] == "source_grounding")["status"], "fail")
 
+    def test_source_derived_reference_edits_require_honing(self) -> None:
+        for name in ("research-canon.md", "principle-traceability.md", "hygiene-principles.md"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                manifest, current, candidate = self.make_synthetic_bundle(root)
+                path = candidate / "references" / name
+                path.write_text(path.read_text(encoding="utf-8") + "\nSynthetic source edit.\n", encoding="utf-8")
+                bundle = json.loads(manifest.read_text(encoding="utf-8"))
+                bundle["candidate_fingerprint"] = tree_digest(candidate)
+                manifest.write_text(json.dumps(bundle), encoding="utf-8")
+                for identity in ("result-candidate", "execution-candidate"):
+                    self.rewrite_artifact(manifest, identity, lambda payload: payload.update(skill_fingerprint=tree_digest(candidate)))
+                with patch("validate_package.validate", return_value={"valid": True}):
+                    decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+                self.assertEqual(next(g for g in decision["gates"] if g["name"] == "source_grounding")["status"], "fail")
+
     def test_missing_artifact_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -673,6 +759,8 @@ class EvidenceBundleTests(unittest.TestCase):
             decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertFalse(decision["promotion_ready"])
             self.assertTrue(any(gate["status"] == "fail" for gate in decision["gates"]))
+            self.assertIn("independent_review", {gate["name"] for gate in decision["gates"]})
+            self.assertTrue(all(gate["status"] == "fail" for gate in decision["gates"] if gate["name"] != "bundle_format"))
 
     def test_duplicate_json_keys_fail_bundle_format(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -738,16 +826,27 @@ class EvidenceBundleTests(unittest.TestCase):
             manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
             fixture_id = "hyg-006-currency-rounding"
             self.rewrite_artifact(manifest, "plan", lambda payload: payload.update(prompt_ids=["HYG-006"], critical_prompt_ids=["HYG-006"], applicable_fixture_ids=[fixture_id]))
+            signature = json.loads((SCRIPTS.parent / "fixtures" / fixture_id / "fixture.json").read_text(encoding="utf-8"))["baseline_signature"]["expected_failures"]
             for arm in ("baseline", "candidate"):
-                self.rewrite_artifact(manifest, f"result-{arm}", lambda payload: (payload.update(prompt_ids=["HYG-006"]), payload["scores"][0].update(prompt_id="HYG-006")))
-                report = {"framework": "python-unittest", "tests_run": 4, "failures": [], "errors": []}
+                self.rewrite_artifact(manifest, f"result-{arm}", lambda payload: (payload.update(prompt_ids=["HYG-006"], scores=payload["scores"][:1]), payload["scores"][0].update(prompt_id="HYG-006")))
+                baseline_failure = arm == "baseline"
+                other = "test_pricing.PricingTests.test_whole_dollar_total"
+                report = {"framework": "python-unittest", "tests_run": 4, "skipped": 0, "expected_failures": 0,
+                          "failures": signature if baseline_failure else [], "errors": [],
+                          "passed": [other] if baseline_failure else sorted(signature + [other])}
                 artifact_id = f"fixture-{arm}"
-                self.add_artifact(manifest, artifact_id, {"fixture_id": fixture_id, "run_id": "run-baseline", "target_id": "target-a", "trial": 1, "arm": arm, "skill_fingerprint": tree_digest(current if arm == "baseline" else candidate), "outcome": "pass", "resolved": True, "protected_files_ok": True, "tests_passed": True, "exit_code": 0, "timed_out": False, "framework": "python-unittest", "command": [sys.executable, "-m", "unittest", "discover", "-s", "tests"], "stdout_tail": "CODE_HYGIENE_TEST_RESULT=" + json.dumps(report), "test_report": report})
+                self.add_artifact(manifest, artifact_id, {"fixture_id": fixture_id, "run_id": f"run-{arm}", "target_id": "target-a", "trial": 1, "arm": arm, "skill_fingerprint": tree_digest(current if baseline_failure else candidate), "outcome": "expected_assertion_failure" if baseline_failure else "pass", "resolved": not baseline_failure, "signature_matched": baseline_failure, "protected_files_ok": True, "tests_passed": not baseline_failure, "exit_code": 1 if baseline_failure else 0, "timed_out": False, "framework": "python-unittest", "command": [sys.executable, "-m", "unittest", "discover", "-s", "tests"], "stdout_tail": "CODE_HYGIENE_TEST_RESULT=" + json.dumps(report), "test_report": report})
                 self.rewrite_artifact(manifest, f"verification-{arm}", lambda payload: payload.update(fixture_results=[{"fixture_id": fixture_id, "result_artifact": artifact_id}]))
                 self.rewrite_artifact(manifest, "review", lambda payload: payload["inspected_artifact_ids"].append(artifact_id))
+            self.rebind_review(manifest)
             with patch("validate_package.validate", return_value={"valid": True}):
-                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
-            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "matched_trials")["status"], "fail")
+                valid = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+                self.assertEqual(next(g for g in valid["gates"] if g["name"] == "matched_trials")["status"], "pass")
+                self.rewrite_artifact(manifest, "fixture-candidate", lambda payload: payload.update(run_id="run-baseline"))
+                invalid = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            matched = next(g for g in invalid["gates"] if g["name"] == "matched_trials")
+            self.assertEqual(matched["status"], "fail")
+            self.assertIn("fixture result missing or failed", matched["detail"])
 
     def test_result_must_fall_within_execution_window(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

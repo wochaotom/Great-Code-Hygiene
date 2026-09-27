@@ -496,6 +496,8 @@ def validate(repo_root: Path, allow_runs: bool) -> dict:
     if not check_edition_links(repo_root, reporter):
         return {'valid': False, 'repo_root': str(repo_root), 'checks': reporter.checks, 'errors': reporter.errors, 'warnings': reporter.warnings}
     check_expected_paths(repo_root, reporter)
+    for relative in (FUNCTION_ONLY_DIR, SKELETON_DIR, Path('.agents/skills/code-hygiene'), Path('.cursor/skills/code-hygiene')):
+        check_edition_root(repo_root / relative, {'SKILL.md'}, f'{relative.as_posix()} layout', reporter)
     check_instance_counts(repo_root, reporter)
     check_native_ai_entrypoints(repo_root, reporter)
     check_portable_prompt_content(repo_root, reporter)

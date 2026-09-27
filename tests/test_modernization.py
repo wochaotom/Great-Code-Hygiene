@@ -18,7 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 from fixture_runner import classify_test_outcome, parse_test_report, protected_file_failures, run_fixture_command, run_transcript_fixture, validate_command, validate_fixture
 from pass100_runner import CATEGORY_KEYS, cmd_score, load_failure_ids, select_batch
 from internal.policy import RUBRIC_CAPS
-from promote_candidate import resolve_existing_dir, validate_apply_target
+from promote_candidate import planned_deletions, resolve_existing_dir, validate_apply_target
 from source_audit_plan import build_context_index, context_role, context_values, query_context, READ_WHEN_RULES
 from validate_honing_report import validate_report
 from validate_results import load_json, validate_payload, validate_score_item
@@ -112,6 +112,16 @@ class ResultValidationTests(unittest.TestCase):
 
 
 class PromotionPathTests(unittest.TestCase):
+    def test_planned_deletions_match_live_tree_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            current = Path(temp) / "current"
+            current.mkdir()
+            for name in ("Runs", "__pycache__", "dist"):
+                (current / name).mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            planned = {Path(path).name for path in planned_deletions(current)}
+            self.assertEqual(planned, {"SKILL.md", "__pycache__", "dist"})
+
     def test_bytecode_inside_verifier_tree_is_rejected_before_import(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             scripts = Path(temp) / "scripts"
@@ -270,6 +280,43 @@ class FixtureOutcomeTests(unittest.TestCase):
             execution = run_fixture_command(fixture, root, 10)
             self.assertEqual(classify_test_outcome(execution, {"framework": "node-test", "test_count_min": 1, "expected_failures": ["contract"]})["outcome"], "unexpected_test_error")
 
+    def test_nested_node_suite_counts_only_leaf_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "nested.test.cjs").write_text(
+                "const { suite, test } = require('node:test');\n"
+                "suite('group', () => { test('contract', () => {}); });\n",
+                encoding="utf-8",
+            )
+            fixture = {"id": "nested-node", "test_command": ["node", "--test", "tests/nested.test.cjs"]}
+            execution = run_fixture_command(fixture, root, 10)
+            self.assertEqual(execution["test_report"]["tests_run"], 1, execution)
+            self.assertEqual(execution["test_report"]["passed"], ["contract"], execution)
+            self.assertTrue(execution["tests_passed"], execution)
+
+    def test_failed_node_suite_is_unexpected_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "broken.test.cjs").write_text(
+                "const { suite } = require('node:test');\n"
+                "suite('broken', () => { throw new Error('setup failed'); });\n",
+                encoding="utf-8",
+            )
+            fixture = {"id": "broken-node", "test_command": ["node", "--test", "tests/broken.test.cjs"]}
+            execution = run_fixture_command(fixture, root, 10)
+            self.assertEqual(execution["test_report"]["suite_errors"], ["broken"], execution)
+            self.assertEqual(execution["test_report"]["failures"], [], execution)
+            self.assertEqual(execution["test_report"]["errors"], [], execution)
+            self.assertFalse(execution["tests_passed"], execution)
+            self.assertEqual(
+                classify_test_outcome(execution, {"framework": "node-test", "test_count_min": 1})["outcome"],
+                "unexpected_test_error",
+            )
+
     def test_forged_python_stdout_is_not_a_test_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -408,6 +455,12 @@ class BatchTests(unittest.TestCase):
         prompts = [{"id": f"HYG-{index:03}", "category": f"category-{index // 10}"} for index in range(100)]
         selected = select_batch(prompts, "smoke", 0, None)
         self.assertEqual(len({item["category"] for item in selected}), 10)
+
+    def test_limit_cannot_truncate_declared_batch_modes(self) -> None:
+        prompts = [{"id": "HYG-001", "category": "review"}, {"id": "HYG-002", "category": "review"}]
+        for mode in ("focused", "regression", "full", "smoke"):
+            with self.subTest(mode=mode), self.assertRaises(SystemExit):
+                select_batch(prompts, mode, 0, 1, categories=["review"], failure_ids={"HYG-001", "HYG-002"})
 
 
 if __name__ == "__main__":

@@ -23,20 +23,11 @@ reject_verifier_bytecode()
 
 from internal.evidence import evaluate_bundle, tree_digest, unsafe_link
 from internal.policy import finite_number
-from internal.transaction import apply_transaction, journal_path, recover_transaction
+from internal.transaction import TRANSFERABLE_RUNTIME_NAMES, apply_transaction, journal_path, recover_transaction
 from validate_honing_report import load_json as load_honing_json
 from validate_honing_report import validate_report as validate_honing_report_payload
 
 
-EXCLUDED_NAMES = {
-    "runs",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".fixture-tmp",
-    ".fixture-work",
-    ".git",
-}
 MARKER_NAMES = {"SKILL.md", "compounder-manifest.json"}
 
 
@@ -165,7 +156,7 @@ def planned_deletions(current: Path) -> list[str]:
     return [
         str(child)
         for child in sorted(current.iterdir(), key=lambda item: item.name.lower())
-        if child.name not in EXCLUDED_NAMES
+        if child.name.casefold() not in TRANSFERABLE_RUNTIME_NAMES
     ]
 
 

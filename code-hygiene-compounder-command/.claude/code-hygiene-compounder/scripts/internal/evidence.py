@@ -157,6 +157,7 @@ def artifact_registry(manifest: Path, entries: object) -> tuple[dict[str, Path],
     errors: list[str] = []
     paths: dict[str, Path] = {}
     seen_paths: set[str] = set()
+    seen_physical_files: set[tuple[int, int]] = set()
     if not isinstance(entries, list) or not entries:
         return paths, ["artifacts must be a non-empty array"]
     root = manifest.resolve().parent
@@ -195,9 +196,16 @@ def artifact_registry(manifest: Path, entries: object) -> tuple[dict[str, Path],
             if not resolved.is_file() or digest(resolved) != expected:
                 errors.append(f"{label}.sha256 does not match file")
                 continue
+            metadata = resolved.stat()
+            physical_file = (metadata.st_dev, metadata.st_ino)
+            if metadata.st_ino and physical_file in seen_physical_files:
+                errors.append(f"{label}.path reuses a physical file")
+                continue
         except OSError as exc:
             errors.append(f"{label}.sha256 cannot be verified: {exc}")
             continue
+        if metadata.st_ino:
+            seen_physical_files.add(physical_file)
         paths[identity] = resolved
     return paths, errors
 
@@ -229,6 +237,26 @@ def parse_time(value: object) -> datetime:
 
 def gate(gates: list[dict], name: str, passed: bool, detail: str) -> None:
     gates.append({"name": name, "status": "pass" if passed else "fail", "detail": detail})
+
+
+PROMOTION_GATES = (
+    "bundle_format", "artifact_integrity", "skill_fingerprints", "accepted_controls",
+    "candidate_control_isolation", "predeclared_plan", "focused_selection",
+    "source_registry", "hard_target_count", "fixture_applicability",
+    "structural_budgets", "package_parity", "matched_trials", "execution_capture",
+    "fixture_verification", "independent_review", "source_grounding",
+    "baseline_comparison", "predeclared_improvement",
+)
+
+
+def incomplete_decision(decision: dict) -> dict:
+    gates = decision["gates"]
+    reported = {item["name"] for item in gates}
+    blocker = next((item["name"] for item in reversed(gates) if item["status"] == "fail"), "an earlier gate")
+    for name in PROMOTION_GATES:
+        if name not in reported:
+            gate(gates, name, False, f"not evaluated after {blocker}")
+    return decision
 
 
 def artifact_json(paths: dict[str, Path], identity: object) -> dict:
@@ -278,15 +306,15 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         decision["evidence_bundle_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         gate(gates, "bundle_format", False, str(exc))
-        return decision
+        return incomplete_decision(decision)
     if bundle.get("schema_version") != 2 or isinstance(bundle.get("schema_version"), bool) or "diagnostic_only" in bundle:
         gate(gates, "bundle_format", False, "schema_version must be 2 and diagnostic-only markers are not allowed")
-        return decision
+        return incomplete_decision(decision)
     gate(gates, "bundle_format", True, "v2 bundle")
     paths, errors = artifact_registry(manifest, bundle.get("artifacts"))
     gate(gates, "artifact_integrity", not errors, "; ".join(errors) if errors else f"{len(paths)} hashed artifacts")
     if errors:
-        return decision
+        return incomplete_decision(decision)
 
     try:
         reject_excluded_directories(candidate)
@@ -298,7 +326,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             decision["candidate_fingerprint"] = candidate_hash
     except (OSError, ValueError) as exc:
         gate(gates, "skill_fingerprints", False, str(exc))
-        return decision
+        return incomplete_decision(decision)
 
     try:
         accepted = accepted_root.resolve(strict=True)
@@ -351,9 +379,9 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         gate(gates, "predeclared_plan", bool(valid_plan), "target/trial/configuration declared" if valid_plan else "invalid or incomplete evaluation plan")
     except (OSError, ValueError, TypeError, KeyError, SystemExit, json.JSONDecodeError) as exc:
         gate(gates, "predeclared_plan", False, str(exc))
-        return decision
+        return incomplete_decision(decision)
     if not valid_plan:
-        return decision
+        return incomplete_decision(decision)
 
     categories = plan.get("categories")
     suite_categories = {item["category"] for item in suite_prompts}
@@ -373,11 +401,14 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         gate(gates, "source_registry", True, "accepted source IDs loaded")
     except (OSError, ValueError, SystemExit) as exc:
         gate(gates, "source_registry", False, str(exc))
-        return decision
+        return incomplete_decision(decision)
 
     target_hashes = {target: digest(paths[identity]) for target, identity in target_artifacts.items()}
-    hard_ok = plan["mode"] != "hard" or len(targets) >= 3 and len(set(target_hashes.values())) == len(targets)
-    gate(gates, "hard_target_count", hard_ok, "three distinct target snapshots" if plan["mode"] == "hard" else "focused mode")
+    if plan["mode"] == "hard":
+        hard_ok = len(targets) >= 3 and len(set(target_hashes.values())) == len(targets)
+        gate(gates, "hard_target_count", hard_ok, "three distinct target snapshots")
+    else:
+        gates.append({"name": "hard_target_count", "status": "not-applicable", "detail": "focused mode does not require three targets"})
     fixture_manifests: dict[str, dict] = {}
     try:
         fixture_manifests = {}
@@ -415,7 +446,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     run_entries = bundle.get("runs")
     if not isinstance(run_entries, list) or not run_entries:
         gate(gates, "matched_trials", False, "runs must be a non-empty array")
-        return decision
+        return incomplete_decision(decision)
     expected_keys = {(target, trial, arm) for target in targets for trial in range(1, trials + 1) for arm in ("baseline", "candidate")}
     observed: dict[tuple[str, int, str], dict] = {}
     run_ids: set[str] = set()
@@ -427,7 +458,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         honing_id = bundle.get("honing_artifact")
         if not isinstance(honing_id, str) or honing_id not in paths:
             gate(gates, "source_grounding", False, "source-backed plan lacks a registered honing artifact")
-            return decision
+            return incomplete_decision(decision)
         inspected_ids.add(honing_id)
     operator_ids: set[str] = set()
     problems: list[str] = []
@@ -596,7 +627,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     try:
         source_changed = any(
             digest(current / "references" / name) != digest(candidate / "references" / name)
-            for name in ("training-lessons.md", "source-registry.md", "source-weights.json")
+            for name in ("training-lessons.md", "source-registry.md", "source-weights.json",
+                         "research-canon.md", "principle-traceability.md", "hygiene-principles.md")
         )
         old_packs = {path.stem: digest(path) for path in (current / "references" / "source-packs").glob("*.md")}
         new_packs = {path.stem: digest(path) for path in (candidate / "references" / "source-packs").glob("*.md")}
@@ -618,6 +650,15 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             weighted_ids = source_ids - SOURCE_ID_FALLBACKS
             if not isinstance(activated, list) or any(not isinstance(source_id, str) or source_id not in weighted_ids for source_id in activated):
                 report_errors.append("honing report must activate accepted weighted sources")
+            weights_doc = loads_strict((accepted / "references" / "source-weights.json").read_text(encoding="utf-8-sig"))
+            if not isinstance(weights_doc, dict):
+                raise ValueError("accepted source weights are malformed")
+            weights = weights_doc.get("weights")
+            if not isinstance(weights, list) or any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in weights):
+                raise ValueError("accepted source weights are malformed")
+            always_ids = {item["id"] for item in weights if item.get("activation") == "always"}
+            if isinstance(activated, list) and not always_ids.issubset({item for item in activated if isinstance(item, str)}):
+                report_errors.append("honing report omits an always-activated source")
             if isinstance(activated, list) and not changed_packs.issubset({item for item in activated if isinstance(item, str)}):
                 report_errors.append("honing report omits a changed source pack")
             if report.get("baseline_fingerprint") != current_hash or report.get("candidate_fingerprint") != candidate_hash:
@@ -634,6 +675,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         baseline_totals: list[float] = []
         candidate_totals: list[float] = []
         regressions: list[str] = []
+        scores_equal = True
         for target in targets:
             for trial in range(1, trials + 1):
                 baseline = observed[(target, trial, "baseline")]
@@ -645,6 +687,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     continue
                 for prompt_id, old in before.items():
                     new = after[prompt_id]
+                    if any(new["categories"][key] != old["categories"][key] for key in CATEGORY_KEYS):
+                        scores_equal = False
                     baseline_totals.append(math.fsum(float(old["categories"][key]) for key in CATEGORY_KEYS))
                     candidate_totals.append(math.fsum(float(new["categories"][key]) for key in CATEGORY_KEYS))
                     if prompt_id in critical:
@@ -663,7 +707,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 baseline_bytes, baseline_content = instruction_sizes(current)
                 candidate_bytes, candidate_content = instruction_sizes(candidate)
                 decision["instruction_bytes"] = {"baseline": baseline_bytes, "candidate": candidate_bytes}
-                improved = (average_after is not None and average_before is not None and average_after == average_before
+                improved = (average_after is not None and average_before is not None and scores_equal
                             and baseline_bytes - candidate_bytes >= 32 and baseline_content - candidate_content >= 16)
             except (OSError, ValueError):
                 improved = False

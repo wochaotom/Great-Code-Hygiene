@@ -344,6 +344,29 @@ def sync_repo(repo_root: Path) -> None:
     if not source.is_dir() or not (repo_root / ".claude-plugin" / "marketplace.json").is_file() or not (repo_root / "plugins" / SKILL_NAME / ".codex-plugin" / "plugin.json").is_file():
         raise SystemExit("repository or marketplace paths are incomplete")
     reject_export_links(source)
+    directory_targets = [plugin, claude_ai, command]
+    directory_targets.extend(destination / name for destination in (claude_ai, command) for name in ("references", "scripts", "fixtures"))
+    file_targets = [
+        claude_ai / "SKILL.md",
+        repo_root / "code-hygiene-compounder-command" / ".claude" / "commands" / "code-hygiene.md",
+        repo_root / "portable-prompts" / PORTABLE_PROMPT_NAME,
+    ]
+    if unsafe_link(repo_root):
+        raise ValueError(f"unsafe sync root link: {repo_root}")
+    for target in directory_targets + file_targets:
+        try:
+            relative = target.relative_to(repo_root)
+        except ValueError as exc:
+            raise ValueError(f"sync target outside repository: {target}") from exc
+        ancestor = repo_root
+        for part in relative.parts:
+            ancestor /= part
+            if unsafe_link(ancestor):
+                raise ValueError(f"unsafe sync target link: {ancestor}")
+        if target.exists() and target in directory_targets:
+            reject_export_links(target)
+        if target.exists() and target in file_targets and not target.is_file():
+            raise ValueError(f"sync target is not a file: {target}")
     copy_tree(source, plugin, extra_excludes=(".claude-plugin",))
     claude_ai.mkdir(parents=True, exist_ok=True)
     (claude_ai / "SKILL.md").write_text(read_skill_text(source), encoding="utf-8", newline="\n")

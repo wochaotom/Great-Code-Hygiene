@@ -337,8 +337,9 @@ subset. Its applicable executable fixtures must reproduce the declared baseline
 failure signature and pass on the candidate, with protected test files unchanged.
 A promotion also requires structural budgets, package parity, no aggregate
 mean regression and no critical-category regression on declared critical prompts,
-a focused average of at least 85, and a predeclared gain (or equal behavior with
-smaller active instructions). For equal-score promotions, the conservative size
+a focused average of at least 85, and a predeclared gain (or identical category
+scores for every matched prompt and trial with smaller active instructions). For
+equal-score promotions, the conservative size
 check counts `SKILL.md` and eligible instruction files under `references/`
 in both trees. Generated context-index JSON, its schema, source-weight JSON,
 agent metadata, and plugin metadata cannot supply a size reduction; the pinned
@@ -352,8 +353,9 @@ since those files would not be installed. Each target ID binds to a
 nonempty snapshot
 artifact in the plan and execution record; hard mode needs three distinct
 snapshot hashes. The reviewer must inspect the snapshots as well as run records.
-Source-backed edits need a valid honing report in the bundle. Its activated IDs
-must be accepted weighted sources, and every changed source pack must be named.
+Source-backed edits, including source-derived reference changes, need a valid
+honing report in the bundle. Its activated IDs must be accepted weighted sources;
+every always-activated source and changed source pack must be named.
 Unavailable gates
 fail; they do not become implicit passes.
 
