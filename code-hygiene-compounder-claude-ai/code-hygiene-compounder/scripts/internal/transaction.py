@@ -18,7 +18,7 @@ def journal_path(current: Path) -> Path:
 
 def scoped(path: Path, parent: Path, prefix: str) -> Path:
     absolute = path.absolute()
-    if absolute.parent != parent.absolute() or not absolute.name.startswith(prefix) or unsafe_link(absolute):
+    if absolute.parent != parent.absolute() or not os.path.normcase(absolute.name).startswith(os.path.normcase(prefix)) or unsafe_link(absolute):
         raise ValueError(f"transaction path is outside scope: {path}")
     return absolute
 

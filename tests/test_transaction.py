@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 import os
+import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +24,48 @@ def approved_apply(candidate: Path, current: Path, after_phase=None) -> None:
 
 
 class TransactionTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "case-insensitive recovery is Windows-specific")
+    def test_recovery_accepts_case_variant_of_target_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate = root / "skill", root / "candidate"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupt(phase: str) -> None:
+                if phase == "backed_up":
+                    raise RuntimeError("interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                approved_apply(candidate, current, after_phase=interrupt)
+            recover_transaction(root / "SKILL")
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+            self.assertFalse(journal_path(current).exists())
+
+    def test_cli_recovery_writes_requested_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current, candidate, log = root / "current", root / "candidate", root / "recovery.jsonl"
+            current.mkdir()
+            candidate.mkdir()
+            (current / "SKILL.md").write_text("old", encoding="utf-8")
+            (candidate / "SKILL.md").write_text("new", encoding="utf-8")
+
+            def interrupt(phase: str) -> None:
+                if phase == "backed_up":
+                    raise RuntimeError("interrupted")
+
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                approved_apply(candidate, current, after_phase=interrupt)
+            completed = subprocess.run([sys.executable, "-B", str(SCRIPTS / "promote_candidate.py"), "--current", str(current), "--recover", "--log", str(log)], capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            record = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(record["recovered"], True)
+            self.assertIn("decided_at", record)
+            self.assertEqual((current / "SKILL.md").read_text(encoding="utf-8"), "old")
+
     def test_recovery_accepts_same_aliased_parent_used_for_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

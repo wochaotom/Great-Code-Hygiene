@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "code-hygiene-compounder" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from internal.evidence import artifact_registry, control_hashes, evaluate_bundle, instruction_bytes, tree_digest, verify_transcript_fixture
+from internal.evidence import artifact_registry, control_hashes, evaluate_bundle, instruction_bytes, reject_excluded_directories, tree_digest, verify_transcript_fixture
 from internal.policy import CATEGORY_KEYS, RUBRIC_CAPS
 from pass100_runner import load_prompts
 
@@ -27,6 +27,28 @@ SYNTHETIC_PROMPTS = [item["id"] for item in load_prompts(SCRIPTS.parent / "refer
 
 
 class EvidenceBundleTests(unittest.TestCase):
+    def test_new_top_level_content_is_counted_for_size_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            current, candidate = Path(temp) / "current", Path(temp) / "candidate"
+            for tree in (current, candidate):
+                (tree / "references").mkdir(parents=True)
+                (tree / "SKILL.md").write_text("Original instructions\n", encoding="utf-8")
+            (candidate / "guides").mkdir()
+            (candidate / "guides" / "moved.md").write_text("Moved instructions\n", encoding="utf-8")
+            self.assertGreater(instruction_bytes(candidate), instruction_bytes(current))
+
+    def test_candidate_omitted_files_and_unregistered_roots_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            candidate = Path(temp)
+            (candidate / "references").mkdir()
+            (candidate / "references" / "runs").write_text("hidden from export", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "excluded"):
+                reject_excluded_directories(candidate)
+            (candidate / "references" / "runs").unlink()
+            (candidate / "guides").mkdir()
+            with self.assertRaisesRegex(ValueError, "unexpected"):
+                reject_excluded_directories(candidate)
+
     def test_non_markdown_reference_content_is_counted_for_size_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             current, candidate = Path(temp) / "current", Path(temp) / "candidate"
@@ -47,6 +69,24 @@ class EvidenceBundleTests(unittest.TestCase):
             with patch("validate_package.validate", return_value={"valid": True}):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertFalse(decision["promotion_ready"])
+            self.assertIn("excluded path", next(gate for gate in decision["gates"] if gate["name"] == "skill_fingerprints")["detail"])
+
+    def test_candidate_excluded_file_fails_fingerprint_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            (candidate / "references" / "runs").write_text("omitted from exports", encoding="utf-8")
+            decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertFalse(decision["promotion_ready"])
+            self.assertIn("excluded path", next(gate for gate in decision["gates"] if gate["name"] == "skill_fingerprints")["detail"])
+
+    def test_unregistered_candidate_root_fails_fingerprint_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            (candidate / "guides").mkdir()
+            (candidate / "guides" / "moved.md").write_text("relocated instructions", encoding="utf-8")
+            decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertFalse(decision["promotion_ready"])
+            self.assertIn("unexpected root path", next(gate for gate in decision["gates"] if gate["name"] == "skill_fingerprints")["detail"])
 
     def test_missing_honing_artifact_is_a_logged_gate_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,7 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from fixture_runner import classify_test_outcome, parse_test_report, protected_file_failures, run_fixture_command, run_transcript_fixture, validate_command, validate_fixture
 from pass100_runner import CATEGORY_KEYS, cmd_score, load_failure_ids, select_batch
-from promote_candidate import validate_apply_target
+from promote_candidate import resolve_existing_dir, validate_apply_target
 from source_audit_plan import build_context_index, context_role, context_values, query_context, READ_WHEN_RULES
 from validate_honing_report import validate_report
 from validate_results import load_json, validate_payload
@@ -86,6 +87,19 @@ class ResultValidationTests(unittest.TestCase):
 
 
 class PromotionPathTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "junctions are Windows-specific")
+    def test_junction_root_is_rejected_before_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target, junction = root / "target", root / "junction"
+            target.mkdir()
+            created = subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(target)], capture_output=True, text=True)
+            if created.returncode != 0:
+                self.skipTest(f"junction creation unavailable: {created.stderr}")
+            resolved, errors = resolve_existing_dir(junction, "--current")
+            self.assertIsNone(resolved)
+            self.assertTrue(any("junction" in error for error in errors))
+
     def test_nested_candidate_or_current_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

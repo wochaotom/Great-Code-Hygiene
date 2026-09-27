@@ -135,7 +135,7 @@ def zip_dir(src: Path, zip_path: Path, prefix: str = "") -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(src.rglob("*"), key=lambda item: item.relative_to(src).as_posix()):
             relative_path = path.relative_to(src)
-            if path.is_file() and not any(part in EXCLUDED_NAMES for part in relative_path.parts):
+            if path.is_file() and relative_path.as_posix() != EXPORT_MARKER and not any(part in EXCLUDED_NAMES for part in relative_path.parts):
                 if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
                     raise ValueError(f"unsafe export link: {path}")
                 archive_name = (Path(prefix) / relative_path).as_posix() if prefix else relative_path.as_posix()

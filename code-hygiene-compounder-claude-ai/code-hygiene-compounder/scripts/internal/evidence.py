@@ -21,6 +21,7 @@ from validate_results import load_source_ids, validate_payload
 
 
 SKIP_NAMES = frozenset({"runs", "__pycache__", ".pytest_cache", ".mypy_cache", ".fixture-work", ".fixture-tmp", ".git"})
+PACKAGE_ROOTS = frozenset({"SKILL.md", ".claude-plugin", "agents", "fixtures", "references", "scripts"})
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -46,10 +47,14 @@ def reject_excluded_directories(root: Path) -> None:
     def fail(error: OSError) -> None:
         raise error
 
-    for current, dirs, _ in os.walk(root, onerror=fail):
-        for name in dirs:
+    for current, dirs, files in os.walk(root, onerror=fail):
+        base = Path(current)
+        for name in dirs + files:
+            path = base / name
             if name in SKIP_NAMES:
-                raise ValueError(f"candidate contains excluded directory: {Path(current) / name}")
+                raise ValueError(f"candidate contains excluded path: {path}")
+            if base == root and name not in PACKAGE_ROOTS:
+                raise ValueError(f"candidate contains unexpected root path: {path}")
 
 
 def tree_digest(root: Path) -> str:
@@ -82,17 +87,28 @@ def instruction_sizes(root: Path) -> tuple[int, int]:
     references = root / "references"
     if not references.is_dir():
         raise ValueError(f"missing instruction references: {references}")
-    files = [root / "SKILL.md", *(path for path in references.rglob("*") if path.is_file())]
-    agents = root / "agents"
-    if agents.is_dir():
-        files.extend(path for path in agents.rglob("*") if path.is_file())
-    if any(not path.is_file() or unsafe_link(path) for path in files):
-        raise ValueError(f"unsafe instruction file in: {root}")
+    if not (root / "SKILL.md").is_file():
+        raise ValueError(f"missing instruction file: {root / 'SKILL.md'}")
     total = significant = 0
-    for path in files:
-        content = path.read_bytes()
-        total += len(content)
-        significant += sum(byte not in b" \t\r\n\f\v" for byte in content)
+
+    def fail(error: OSError) -> None:
+        raise error
+
+    for current, dirs, files in os.walk(root, onerror=fail):
+        base = Path(current)
+        for name in list(dirs):
+            if unsafe_link(base / name):
+                raise ValueError(f"unsafe instruction path: {base / name}")
+        dirs[:] = [name for name in dirs if name not in SKIP_NAMES]
+        for name in files:
+            path = base / name
+            if name in SKIP_NAMES:
+                continue
+            if unsafe_link(path) or not path.is_file():
+                raise ValueError(f"unsafe instruction file: {path}")
+            content = path.read_bytes()
+            total += len(content)
+            significant += sum(byte not in b" \t\r\n\f\v" for byte in content)
     return total, significant
 
 

@@ -20,6 +20,36 @@ from internal.evidence import tree_digest, unsafe_link
 
 
 class ExportDeterminismTests(unittest.TestCase):
+    def test_cli_archives_do_not_ship_export_ownership_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for mode in ("claude-code-skill", "claude-ai-skill", "legacy-command"):
+                with self.subTest(mode=mode):
+                    command = [sys.executable, "-B", str(SCRIPTS / "export_claude_package.py"),
+                               "--skill-root", str(SCRIPTS.parent), "--out-dir", str(root),
+                               "--zip-name", f"{mode}.zip", "--format", mode]
+                    completed = subprocess.run(command, capture_output=True, text=True)
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    self.assertTrue((root / mode / ".great-code-hygiene-export.json").is_file())
+                    with zipfile.ZipFile(root / f"{mode}.zip") as archive:
+                        names = archive.namelist()
+                        self.assertNotIn(".great-code-hygiene-export.json", names)
+                        if mode == "claude-ai-skill":
+                            self.assertTrue(all(name.startswith("code-hygiene-compounder/") for name in names))
+
+    def test_zip_excludes_only_root_export_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            package = root / "package"
+            nested = package / "code-hygiene-compounder" / "references"
+            nested.mkdir(parents=True)
+            (package / ".great-code-hygiene-export.json").write_text("ownership", encoding="utf-8")
+            (nested / ".great-code-hygiene-export.json").write_text("user file", encoding="utf-8")
+            archive_path = root / "package.zip"
+            zip_dir(package, archive_path)
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(archive.namelist(), ["code-hygiene-compounder/references/.great-code-hygiene-export.json"])
+
     @unittest.skipUnless(os.name == "nt", "junctions are Windows-specific")
     def test_windows_junction_is_rejected_even_without_path_is_junction(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

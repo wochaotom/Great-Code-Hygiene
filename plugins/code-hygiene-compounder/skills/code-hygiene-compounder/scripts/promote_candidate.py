@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from internal.evidence import evaluate_bundle
+from internal.evidence import evaluate_bundle, unsafe_link
 from internal.transaction import apply_transaction, recover_transaction
 from validate_honing_report import load_json as load_honing_json
 from validate_honing_report import validate_report as validate_honing_report_payload
@@ -93,7 +93,7 @@ def major_promotion_evidence(score: dict, score_path: Path) -> tuple[bool, str]:
 
 
 def resolve_existing_dir(path: Path, label: str) -> tuple[Path | None, list[str]]:
-    if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+    if unsafe_link(path):
         return None, [f"{label} is a link or junction: {path}"]
     try:
         resolved = path.resolve(strict=True)
@@ -122,10 +122,10 @@ def validate_apply_target(current: Path, candidate: Path) -> list[str]:
     if current in candidate.parents or candidate in current.parents:
         errors.append("--current and --candidate must not overlap")
     for label, root in (("--current", current), ("--candidate", candidate)):
-        if root.is_symlink() or (hasattr(root, "is_junction") and root.is_junction()):
+        if unsafe_link(root):
             errors.append(f"{label} is a link or junction")
         for child in root.rglob("*"):
-            if child.is_symlink() or (hasattr(child, "is_junction") and child.is_junction()):
+            if unsafe_link(child):
                 errors.append(f"{label} contains a link or junction: {child}")
                 break
 
@@ -167,6 +167,12 @@ def validate_honing_report(path: Path) -> list[str]:
     return [f"honing report {error}" for error in validate_honing_report_payload(report)]
 
 
+def append_decision_log(path: Path, decision: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(decision, sort_keys=True) + "\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gate and promote a candidate skill update.")
     parser.add_argument("--current", type=Path, required=True)
@@ -191,7 +197,10 @@ def main() -> None:
         if args.apply or args.score or args.evidence_bundle or args.candidate:
             parser.error("--recover accepts only --current and optional --log")
         retained_backup = recover_transaction(args.current)
-        print(json.dumps({"recovered": True, "current": str(args.current), "retained_backup": str(retained_backup) if retained_backup else None}, indent=2, sort_keys=True))
+        decision = {"decided_at": utc_now(), "recovered": True, "current": str(args.current), "retained_backup": str(retained_backup) if retained_backup else None}
+        if args.log:
+            append_decision_log(args.log, decision)
+        print(json.dumps(decision, indent=2, sort_keys=True))
         return
     if not args.candidate or not (args.score or args.evidence_bundle):
         parser.error("--candidate and either --score or --evidence-bundle are required")
@@ -247,9 +256,7 @@ def main() -> None:
         decision["retained_backup"] = str(retained_backup)
 
     if args.log:
-        args.log.parent.mkdir(parents=True, exist_ok=True)
-        with args.log.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(decision, sort_keys=True) + "\n")
+        append_decision_log(args.log, decision)
 
     print(json.dumps(decision, indent=2, sort_keys=True))
     if errors or not decision["promotion_ready"]:
