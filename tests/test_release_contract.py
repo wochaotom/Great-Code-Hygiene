@@ -226,6 +226,17 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertEqual((canonical / "SKILL.md").read_text(encoding="utf-8"), "canonical")
             self.assertEqual((runtime / "SKILL.md").read_text(encoding="utf-8"), "stale")
 
+    def test_doctor_compares_the_selected_runtime_edition(self) -> None:
+        editions = {
+            "clean": REPO_ROOT / "code-hygiene",
+            "skeleton": REPO_ROOT / "code-hygiene-skeleton",
+            "claude_ai_skill": REPO_ROOT / "code-hygiene-compounder-claude-ai" / "code-hygiene-compounder",
+        }
+        for edition, runtime in editions.items():
+            with self.subTest(edition=edition), patch("validate_package.validate", return_value={"valid": True, "errors": []}), patch("validate_package.shutil.which", return_value="node"), patch("validate_package.subprocess.run", return_value=CompletedProcess(["node", "--version"], 0, "v24.0.0\n", "")):
+                report = validate_package.doctor(REPO_ROOT, runtime, edition)
+            self.assertEqual(next(item for item in report["checks"] if item["name"] == "runtime_parity")["status"], "pass", report)
+
     def test_full_suite_runs_on_three_platforms_with_node_24(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "hygiene.yml").read_text(
             encoding="utf-8"

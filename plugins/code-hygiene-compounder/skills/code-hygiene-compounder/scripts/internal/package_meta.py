@@ -13,6 +13,7 @@ PACKAGE_DIRS = {
 }
 FUNCTION_ONLY_DIR = Path("code-hygiene")
 SKELETON_DIR = Path("code-hygiene-skeleton")
+RUNTIME_EDITIONS = {**PACKAGE_DIRS, "clean": FUNCTION_ONLY_DIR, "skeleton": SKELETON_DIR}
 EXCLUDED_NAMES = frozenset({
     "runs", "__pycache__", ".pytest_cache", ".mypy_cache", ".fixture-tmp", ".fixture-work", ".git", "dist",
 })

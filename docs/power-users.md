@@ -333,8 +333,19 @@ agent metadata, context-index schema, and policy must remain outside
 the candidate tree and match the installed baseline's controls. Candidate edits
 to those controls require ordinary reviewed repository maintenance. A promotion
 must cover every prompt in each predeclared focused category, not a favorable
-subset. Its applicable executable fixtures must reproduce the declared baseline
-failure signature and pass on the candidate, with protected test files unchanged.
+subset. The verifier reruns each untouched applicable fixture in a temporary
+copy and confirms its declared failure signature with protected tests unchanged.
+The current-skill model arm may fix that fixture or fail with the known
+assertion signature; the candidate arm must pass. Every repository fixture run
+must bind a hashed ZIP snapshot of its edited target to its execution,
+verification result, and independent review. The archive is checked for unsafe
+paths and protected-test changes. Use `fixture_runner.py snapshot` after running
+the tests to create it. This binding makes the edited target inspectable but
+does not, by itself, prove the recorded tests ran on that exact archive.
+Edited fixture targets are executable code. Run them only in an appropriately
+isolated external harness; a test reporter and hashed output cannot establish
+authenticity against code that can tamper with the harness or an operator who
+fabricates all inputs.
 A promotion also requires structural budgets, package parity, no aggregate
 mean regression and no critical-category regression on declared critical prompts,
 a focused average of at least 85, and a predeclared gain (or identical category

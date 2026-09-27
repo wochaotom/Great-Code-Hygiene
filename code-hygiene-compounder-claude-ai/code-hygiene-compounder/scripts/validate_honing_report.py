@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
+from internal.json_integrity import loads_strict
 from internal.policy import finite_number
 
 
@@ -27,8 +28,8 @@ def is_string_list(value: object) -> bool:
 
 def load_json(path: Path) -> dict:
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
+        data = loads_strict(path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"{path}: invalid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise SystemExit(f"{path}: expected a JSON object")

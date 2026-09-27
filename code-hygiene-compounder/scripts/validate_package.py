@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 sys.dont_write_bytecode = True
 from internal.package_meta import PACKAGE_DIRS
-from internal.package_meta import FUNCTION_ONLY_DIR, SKELETON_DIR
+from internal.package_meta import FUNCTION_ONLY_DIR, RUNTIME_EDITIONS, SKELETON_DIR
 from internal.package_meta import PLUGIN_VERSION
 from internal.evidence import unsafe_link
 from export_claude_package import COMMAND_TEXT
@@ -514,7 +514,9 @@ def validate(repo_root: Path, allow_runs: bool) -> dict:
     return {'valid': not reporter.errors, 'repo_root': str(repo_root), 'checks': reporter.checks, 'errors': reporter.errors, 'warnings': reporter.warnings}
 
 
-def doctor(repo_root: Path, runtime_skill_root: Path | None = None) -> dict:
+def doctor(repo_root: Path, runtime_skill_root: Path | None = None, runtime_edition: str = 'codex_skill') -> dict:
+    if runtime_edition not in RUNTIME_EDITIONS:
+        raise ValueError(f'unknown runtime edition: {runtime_edition}')
     """Inspect local prerequisites and explicitly supplied parity without mutation."""
     checks: list[dict] = []
     python_ok = sys.version_info >= (3, 11)
@@ -531,7 +533,7 @@ def doctor(repo_root: Path, runtime_skill_root: Path | None = None) -> dict:
     if runtime_skill_root is None:
         checks.append({'name': 'runtime_parity', 'status': 'not-applicable', 'detail': 'no runtime skill root supplied'})
     else:
-        canonical = repo_root / PACKAGE_DIRS['codex_skill']
+        canonical = repo_root / RUNTIME_EDITIONS[runtime_edition]
         if runtime_skill_root.is_dir():
             canonical_files = tree_fingerprint(canonical)
             runtime_files = tree_fingerprint(runtime_skill_root)
@@ -539,7 +541,7 @@ def doctor(repo_root: Path, runtime_skill_root: Path | None = None) -> dict:
             detail = {'missing': sorted(set(canonical_files) - set(runtime_files)), 'extra': sorted(set(runtime_files) - set(canonical_files)), 'changed': sorted(key for key in set(canonical_files) & set(runtime_files) if canonical_files[key] != runtime_files[key])}
         else:
             equal, detail = False, {'error': f'runtime skill missing: {runtime_skill_root}'}
-        checks.append({'name': 'runtime_parity', 'status': 'pass' if equal else 'fail', 'detail': detail})
+        checks.append({'name': 'runtime_parity', 'status': 'pass' if equal else 'fail', 'detail': {'edition': runtime_edition, **detail}})
     return {'valid': all(check['status'] != 'fail' for check in checks), 'checks': checks}
 
 
@@ -550,11 +552,12 @@ def main() -> None:
     parser.add_argument('--json', action='store_true', help='Print full JSON instead of a short summary.')
     parser.add_argument('--doctor', action='store_true', help='Read-only interpreter, prerequisite, package, and parity checks.')
     parser.add_argument('--runtime-skill-root', type=Path, help='Installed skill root to compare explicitly in --doctor mode.')
+    parser.add_argument('--runtime-edition', choices=sorted(RUNTIME_EDITIONS), default='codex_skill', help='Repository edition represented by --runtime-skill-root.')
     args = parser.parse_args()
     if args.runtime_skill_root and not args.doctor:
         parser.error('--runtime-skill-root requires --doctor')
     if args.doctor:
-        report = doctor(args.repo_root.resolve(), args.runtime_skill_root)
+        report = doctor(args.repo_root.resolve(), args.runtime_skill_root, args.runtime_edition)
         print(json.dumps(report, indent=2, sort_keys=True))
         if not report['valid']:
             raise SystemExit(1)

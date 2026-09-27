@@ -10,13 +10,16 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
+import zipfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from statistics import mean
 
+from analyze_runs import collect_scores, compare_paired_runs, summarize_scores
 from internal.policy import CATEGORY_KEYS, CRITICAL_CATEGORIES, PROMOTION_THRESHOLD
 from internal.json_integrity import loads_strict
-from fixture_runner import classify_test_outcome, executed_test_count, parse_test_report
+from fixture_runner import classify_test_outcome, copy_fixture_repo, executed_test_count, parse_test_report, run_fixture_target
 from pass100_runner import load_prompts
 from validate_results import SOURCE_ID_FALLBACKS, load_source_ids, validate_payload
 
@@ -242,10 +245,10 @@ def gate(gates: list[dict], name: str, passed: bool, detail: str) -> None:
 PROMOTION_GATES = (
     "bundle_format", "artifact_integrity", "skill_fingerprints", "accepted_controls",
     "candidate_control_isolation", "predeclared_plan", "focused_selection",
-    "source_registry", "hard_target_count", "fixture_applicability",
+    "source_registry", "hard_target_count", "fixture_applicability", "fixture_baseline",
     "structural_budgets", "package_parity", "matched_trials", "execution_capture",
     "fixture_verification", "independent_review", "source_grounding",
-    "baseline_comparison", "predeclared_improvement",
+    "baseline_comparison", "predeclared_improvement", "artifact_stability",
 )
 
 
@@ -293,6 +296,49 @@ def verify_transcript_fixture(fixture: dict, result: dict, entry: dict, paths: d
         and result.get("expected_missing_markers") == expected_missing == []
         and sorted(missing) == sorted(declared)
     )
+
+
+def validate_fixture_target_archive(archive_path: Path, fixture: dict) -> None:
+    fixture_root = Path(fixture["_fixture_root"]) / fixture["repo_dir"]
+    files: dict[str, str] = {}
+    total_size = 0
+    with zipfile.ZipFile(archive_path) as archive:
+        if len(archive.infolist()) > 500:
+            raise ValueError("fixture target archive has too many entries")
+        for entry in archive.infolist():
+            name = entry.filename
+            normalized = name.removesuffix("/")
+            parts = normalized.split("/")
+            if (not normalized or name.startswith("/") or "\\" in name or ":" in name
+                    or any(part in ("", ".", "..") for part in parts)
+                    or PurePosixPath(normalized).as_posix() != normalized):
+                raise ValueError("fixture target archive has an unsafe path")
+            mode = stat.S_IFMT(entry.external_attr >> 16)
+            if mode not in (0, stat.S_IFDIR if entry.is_dir() else stat.S_IFREG):
+                raise ValueError("fixture target archive contains a link or special file")
+            if entry.is_dir():
+                continue
+            folded = normalized.casefold()
+            if folded in files:
+                raise ValueError("fixture target archive has duplicate file paths")
+            total_size += entry.file_size
+            if total_size > 16 * 1024 * 1024:
+                raise ValueError("fixture target archive exceeds size limit")
+            content_hash = hashlib.sha256()
+            with archive.open(entry) as source:
+                for chunk in iter(lambda: source.read(65536), b""):
+                    content_hash.update(chunk)
+            files[folded] = content_hash.hexdigest()
+    expected_tests = {path.relative_to(fixture_root).as_posix().casefold() for path in (fixture_root / "tests").rglob("*") if path.is_file()}
+    actual_tests = {name for name in files if name.startswith("tests/")}
+    if actual_tests != expected_tests:
+        raise ValueError("fixture target archive changes test inventory")
+    for relative in fixture.get("protected_files", []):
+        expected_path = fixture_root / relative
+        if files.get(relative.casefold()) != digest(expected_path):
+            raise ValueError(f"fixture target archive changes protected file: {relative}")
+    if not any(not name.startswith("tests/") for name in files):
+        raise ValueError("fixture target archive has no source files")
 
 
 def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_root: Path) -> dict:
@@ -416,6 +462,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             item = read_json(fixture_path)
             if item["prompt_id"] in prompts:
                 item["_accepted_fixture_root"] = str(fixture_path.parent)
+                item["_fixture_root"] = str(fixture_path.parent)
                 fixture_manifests[item["id"]] = item
         matching_fixtures = set(fixture_manifests)
         fixture_ids = set(plan["applicable_fixture_ids"])
@@ -426,6 +473,33 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             gate(gates, "fixture_applicability", fixture_match, "accepted matching fixtures declared" if fixture_match else "declared fixtures differ from accepted prompt matches")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         gate(gates, "fixture_applicability", False, str(exc))
+    if not fixture_manifests:
+        if any(item["name"] == "fixture_applicability" and item["status"] == "not-applicable" for item in gates):
+            gates.append({"name": "fixture_baseline", "status": "not-applicable", "detail": plan["fixture_na_reason"]})
+        else:
+            gate(gates, "fixture_baseline", False, "accepted fixture set unavailable")
+    elif not any(item["name"] == "fixture_applicability" and item["status"] == "pass" for item in gates):
+        gate(gates, "fixture_baseline", False, "declared fixtures differ from accepted fixtures")
+    else:
+        baseline_checks = []
+        try:
+            with tempfile.TemporaryDirectory(prefix="hygiene-fixture-baseline-") as temp:
+                for fixture_id, fixture in sorted(fixture_manifests.items()):
+                    target = Path(temp) / fixture_id
+                    copy_fixture_repo(fixture, target)
+                    observed_baseline = run_fixture_target(fixture, target, 30)
+                    expected_failure = fixture["baseline_expected"] == "fail"
+                    confirmed = (observed_baseline["outcome"] == ("expected_assertion_failure" if expected_failure else "pass")
+                                 and observed_baseline["signature_matched"] is expected_failure
+                                 and observed_baseline["protected_files_ok"] is True
+                                 and observed_baseline["resolved"] is (not expected_failure))
+                    baseline_checks.append({"fixture_id": fixture_id, "outcome": observed_baseline["outcome"], "confirmed": confirmed})
+            decision["fixture_baselines"] = baseline_checks
+            gate(gates, "fixture_baseline", all(item["confirmed"] for item in baseline_checks),
+                 "accepted untouched fixture signatures confirmed" if all(item["confirmed"] for item in baseline_checks)
+                 else "untouched fixture does not match its declared baseline")
+        except (OSError, ValueError, KeyError, SystemExit) as exc:
+            gate(gates, "fixture_baseline", False, str(exc))
     try:
         guard = subprocess.run([sys.executable, "-B", str(accepted / "scripts" / "guardrail_check.py"), "--skill-root", str(candidate), "--json"], capture_output=True, text=True, timeout=30)
         guard_ok = guard.returncode == 0 and read_json_text(guard.stdout).get("valid") is True
@@ -452,6 +526,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     run_ids: set[str] = set()
     output_ids: set[str] = set()
     fixture_result_ids: set[str] = set()
+    fixture_target_ids: set[str] = set()
     execution_ids: set[str] = set()
     inspected_ids: set[str] = {bundle["plan_artifact"], *target_artifacts.values()}
     if plan.get("source_backed") is True:
@@ -503,7 +578,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 raise ValueError("result or execution skill fingerprint mismatch")
             if execution.get("fresh_context") is not True or execution.get("process_exit") != 0 or not isinstance(execution.get("argv"), list) or not execution["argv"]:
                 raise ValueError("fresh external execution record is incomplete")
-            if ("scored_candidate_trial" in execution and execution["scored_candidate_trial"] is not True) or ("scored_candidate_trial" in result and result["scored_candidate_trial"] is not True):
+            if execution.get("scored_candidate_trial") is not True or ("scored_candidate_trial" in result and result["scored_candidate_trial"] is not True):
                 raise ValueError("unscored diagnostic execution cannot authorize promotion")
             operator_id = execution.get("operator_id")
             if not isinstance(operator_id, str) or not operator_id.strip():
@@ -524,16 +599,34 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     or len(fixture_results) != len(plan["applicable_fixture_ids"])
                     or {item.get("fixture_id") for item in fixture_results} != set(plan["applicable_fixture_ids"])):
                 raise ValueError("verification does not cover declared applicable fixtures")
+            fixture_targets = execution.get("fixture_target_artifacts", {})
+            repo_fixture_ids = {fixture_id for fixture_id, fixture in fixture_manifests.items() if fixture.get("mode", "repo") == "repo"}
+            if (not isinstance(fixture_targets, dict)
+                    or set(fixture_targets) != repo_fixture_ids):
+                raise ValueError("execution does not bind every edited fixture target")
             for fixture_entry in fixture_results:
                 fixture_id = fixture_entry["fixture_id"]
                 fixture = fixture_manifests.get(fixture_id)
+                if fixture is None:
+                    raise ValueError(f"unknown accepted fixture: {fixture_id}")
                 fixture_result_id = fixture_entry.get("result_artifact")
                 fixture_result = artifact_json(paths, fixture_result_id)
                 if fixture_result_id in fixture_result_ids:
                     raise ValueError(f"fixture result is reused across runs: {fixture_result_id}")
                 fixture_result_ids.add(fixture_result_id)
                 inspected_ids.add(fixture_result_id)
-                baseline_failure = key[2] == "baseline" and fixture and fixture.get("baseline_expected") == "fail"
+                if fixture.get("mode", "repo") == "repo":
+                    target_archive_id = fixture_entry.get("target_artifact")
+                    if (not isinstance(target_archive_id, str) or target_archive_id not in paths
+                            or fixture_result.get("target_artifact") != target_archive_id
+                            or fixture_targets.get(fixture_id) != target_archive_id
+                            or target_archive_id in fixture_target_ids):
+                        raise ValueError(f"edited fixture target is missing or reused: {fixture_id}")
+                    fixture_target_ids.add(target_archive_id)
+                    inspected_ids.add(target_archive_id)
+                    validate_fixture_target_archive(paths[target_archive_id], fixture)
+                baseline_failure = (key[2] == "baseline" and fixture.get("baseline_expected") == "fail"
+                                    and fixture_result.get("outcome") == "expected_assertion_failure")
                 expected_outcome = "expected_assertion_failure" if baseline_failure else "pass"
                 if (not fixture or fixture_result.get("fixture_id") != fixture_id
                         or any(fixture_result.get(field) != value for field, value in (
@@ -547,7 +640,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     signature = fixture["baseline_signature"]
                     report = fixture_result.get("test_report")
                     command = fixture_result.get("command")
-                    captured = fixture_result.get("stdout_tail")
+                    captured = fixture_result.get("report_output")
                     classification = classify_test_outcome(fixture_result, signature)
                     if (fixture_result.get("protected_files_ok") is not True
                             or fixture_result.get("tests_passed") is not (not baseline_failure)
@@ -572,7 +665,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 inspected_ids.add(entry[artifact_key])
             execution_ids.add(entry["execution_artifact"])
             observed[key] = result
-        except (KeyError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        except (KeyError, OSError, ValueError, TypeError, RuntimeError, NotImplementedError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
             problems.append(str(exc))
     matched = not problems and set(observed) == expected_keys
     gate(gates, "matched_trials", matched, "all baseline/candidate pairs present" if matched else "; ".join(problems[:5]) or "missing baseline/candidate trials")
@@ -697,6 +790,16 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                                 regressions.append(f"critical regression: {target}/{trial}/{prompt_id}/{category}")
         average_before = mean(baseline_totals) if baseline_totals else None
         average_after = mean(candidate_totals) if candidate_totals else None
+        baseline_runs = [observed[(target, trial, "baseline")] for target in targets for trial in range(1, trials + 1)]
+        candidate_runs = [observed[(target, trial, "candidate")] for target in targets for trial in range(1, trials + 1)]
+        paired, analysis_errors = compare_paired_runs(candidate_runs, baseline_runs, plan)
+        regressions.extend(analysis_errors)
+        decision["analysis"] = {
+            "baseline": summarize_scores(collect_scores(baseline_runs), PROMOTION_THRESHOLD),
+            "candidate": summarize_scores(collect_scores(candidate_runs), PROMOTION_THRESHOLD),
+            "paired": paired,
+            "errors": analysis_errors,
+        }
         comparison_ok = not regressions and average_after is not None and average_before is not None and average_after >= average_before and average_after >= PROMOTION_THRESHOLD
         gate(gates, "baseline_comparison", comparison_ok, "zero regression and candidate average >= 85" if comparison_ok else "; ".join(regressions[:5]) or "average regressed or below 85")
         improvement = plan["improvement"]
@@ -717,6 +820,16 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     else:
         gate(gates, "baseline_comparison", False, "matched trials unavailable")
         gate(gates, "predeclared_improvement", False, "matched trials unavailable")
+
+    try:
+        stable = (manifest.read_bytes() == manifest_bytes
+                  and all(not unsafe_link(paths[item["id"]]) and digest(paths[item["id"]]) == item["sha256"]
+                          for item in bundle["artifacts"])
+                  and tree_digest(current) == current_hash and tree_digest(candidate) == candidate_hash
+                  and control_hashes(accepted) == bundle["controls"])
+        gate(gates, "artifact_stability", stable, "evidence and verifier inputs unchanged during evaluation" if stable else "evidence or verifier inputs changed during evaluation")
+    except (OSError, ValueError, KeyError) as exc:
+        gate(gates, "artifact_stability", False, str(exc))
 
     decision["promotion_ready"] = all(item["status"] in ("pass", "not-applicable") for item in gates)
     return decision

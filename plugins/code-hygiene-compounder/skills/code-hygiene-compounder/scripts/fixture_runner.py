@@ -6,11 +6,13 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 sys.dont_write_bytecode = True
@@ -146,6 +148,11 @@ def tail(text: str, limit: int = 4000) -> str:
     if len(text) <= limit:
         return text
     return text[-limit:]
+
+
+def structured_report_output(stdout: str) -> str:
+    lines = [line for line in stdout.splitlines() if line.startswith((RESULT_PREFIX, EVENT_PREFIX))]
+    return "\n".join(lines) + ("\n" if lines else "")
 
 def load_fixtures(fixtures: Path) -> list[dict]:
     fixtures = fixtures.resolve()
@@ -324,6 +331,8 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
         report_path = Path(report_dir) / "result.json"
         effective_command, framework = structured_command(command, report_path)
         env = os.environ.copy()
+        for name in ("NODE_OPTIONS", "NODE_PATH", "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT"):
+            env.pop(name, None)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         started = time.monotonic()
         try:
@@ -353,6 +362,7 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
                 "duration_ms": duration_ms,
                 "tests_passed": completed.returncode == 0 and isinstance(report, dict) and (executed_test_count(report) or 0) > 0 and not report.get("failures") and not report.get("errors") and not report.get("suite_errors"),
                 "stdout_tail": tail(completed.stdout),
+                "report_output": structured_report_output(completed.stdout),
                 "stderr_tail": tail(completed.stderr),
                 "timed_out": False,
             }
@@ -367,6 +377,7 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
                 "duration_ms": duration_ms,
                 "tests_passed": False,
                 "stdout_tail": tail((exc.stdout or b"").decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")),
+                "report_output": "",
                 "stderr_tail": tail((exc.stderr or b"").decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")),
                 "timed_out": True,
             }
@@ -380,6 +391,7 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
                 "duration_ms": int((time.monotonic() - started) * 1000),
                 "tests_passed": False,
                 "stdout_tail": "",
+                "report_output": "",
                 "stderr_tail": str(exc),
                 "timed_out": False,
                 "infrastructure_error": True,
@@ -449,6 +461,33 @@ def copy_fixture_repo(item: dict, target: Path, force: bool = False) -> None:
         target,
         ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", ".mypy_cache", "repo"),
     )
+
+
+def write_fixture_snapshot(item: dict, target: Path, output: Path) -> str:
+    if fixture_mode(item) != "repo" or not target.is_dir():
+        raise ValueError("snapshot requires an edited repository fixture target")
+    if protected_file_failures(item, target):
+        raise ValueError("snapshot target changes protected files or test inventory")
+    target_root = target.resolve(strict=True)
+    output_path = output.resolve(strict=False)
+    if is_relative_to(output_path, target_root) or output.exists():
+        raise ValueError("snapshot output must be new and outside the target")
+    files = []
+    for path in target_root.rglob("*"):
+        if any(part.casefold() in {"__pycache__", ".pytest_cache", ".mypy_cache", ".git", "runs"} for part in path.relative_to(target_root).parts):
+            continue
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or (os.name == "nt" and getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise ValueError(f"snapshot target contains an unsafe link: {path}")
+        if path.is_file():
+            files.append(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output, "x") as archive:
+        for path in sorted(files, key=lambda item: item.relative_to(target_root).as_posix()):
+            entry = zipfile.ZipInfo(path.relative_to(target_root).as_posix(), date_time=(1980, 1, 1, 0, 0, 0))
+            entry.external_attr = 0o100644 << 16
+            archive.writestr(entry, path.read_bytes())
+    return file_digest(output)
 
 
 def run_transcript_fixture(item: dict, target: Path) -> dict:
@@ -543,6 +582,15 @@ def cmd_run(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_snapshot(args: argparse.Namespace) -> None:
+    item = find_fixture(args.fixtures, args.fixture)
+    errors = validate_fixture(item, None)
+    if errors:
+        raise SystemExit("\n".join(errors))
+    archive_hash = write_fixture_snapshot(item, args.target, args.out)
+    print(json.dumps({"fixture_id": item["id"], "target_artifact": str(args.out), "sha256": archive_hash}, sort_keys=True))
+
+
 def default_work_root() -> Path | None:
     env_root = os.environ.get("CODE_HYGIENE_FIXTURE_TMP")
     if env_root:
@@ -623,6 +671,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--target", type=Path, required=True)
     run_parser.add_argument("--out", type=Path)
     run_parser.set_defaults(func=cmd_run)
+
+    snapshot_parser = subparsers.add_parser("snapshot", help="Archive an edited repository fixture target for review evidence.")
+    snapshot_parser.add_argument("--fixture", required=True)
+    snapshot_parser.add_argument("--target", type=Path, required=True)
+    snapshot_parser.add_argument("--out", type=Path, required=True)
+    snapshot_parser.set_defaults(func=cmd_snapshot)
 
     baseline_parser = subparsers.add_parser("baseline", help="Confirm baseline fixtures fail or pass as declared.")
     baseline_parser.add_argument("--out", type=Path)

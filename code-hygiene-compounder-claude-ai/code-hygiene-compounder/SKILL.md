@@ -122,8 +122,9 @@ python scripts/analyze_runs.py --results runs/results.json --baseline runs/basel
 python scripts/guardrail_check.py --skill-root .
 python scripts/fixture_runner.py --fixtures fixtures list
 python scripts/fixture_runner.py --fixtures fixtures baseline
-python scripts/fixture_runner.py --fixtures fixtures prepare --fixture hyg-001-null-helper --target runs/fixtures/hyg-001-null-helper
-python scripts/fixture_runner.py --fixtures fixtures run --fixture hyg-001-null-helper --target runs/fixtures/hyg-001-null-helper
+python scripts/fixture_runner.py --fixtures fixtures prepare --fixture hyg-006-currency-rounding --target runs/fixtures/hyg-006-currency-rounding
+python scripts/fixture_runner.py --fixtures fixtures run --fixture hyg-006-currency-rounding --target runs/fixtures/hyg-006-currency-rounding
+python scripts/fixture_runner.py --fixtures fixtures snapshot --fixture hyg-006-currency-rounding --target runs/fixtures/hyg-006-currency-rounding --out runs/fixtures/hyg-006-target.zip
 python scripts/matrix_runner.py run --split all --loops 50 --variants-per-family 20 --work-root runs/matrix --out runs/matrix-50x.json
 python scripts/matrix_runner.py review --work-root runs/matrix-review --out runs/matrix-review.json
 python code-hygiene-compounder/scripts/promote_candidate.py --current path/to/canonical-trainer --candidate path/to/candidate --evidence-bundle path/to/promotion-bundle.json

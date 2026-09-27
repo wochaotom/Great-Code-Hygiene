@@ -5,15 +5,15 @@
         "daily-hygiene",
         "routing"
       ],
-      "lines": 153,
+      "lines": 154,
       "path": "SKILL.md",
       "read_when": [
         "checking active workflow routing",
         "starting broad training or export work"
       ],
       "role": "active skill entrypoint and routing workflow",
-      "sha256": "01564ae96332674f47a8eb9a39a283bbe607f8dabd90670a2376ee3b1046c59c",
-      "words": 1342
+      "sha256": "2ee4975e92b691b9cd6ec539982402deb167ccf9ec66d35c00116288bbd1920d",
+      "words": 1353
     },
     {
       "domains": [
@@ -58,8 +58,8 @@
         "changing training, promotion, or compounding behavior"
       ],
       "role": "training and promotion protocol",
-      "sha256": "3cd07cddea6d32eb7bbe9e3a5395c4c7139f6bc37768fd214353bcee0254f3c2",
-      "words": 1084
+      "sha256": "891f0979957639c931d551172a6a65dd7662fae05c243d6a3850c307b1a66105",
+      "words": 1123
     },
     {
       "domains": [

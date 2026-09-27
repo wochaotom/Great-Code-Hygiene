@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "code-hygiene-compounder" / "scripts"
@@ -235,6 +236,15 @@ class FixtureOutcomeTests(unittest.TestCase):
         validate_command(["{python}", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"], "fixture", errors)
         self.assertTrue(errors)
 
+    def test_standalone_honing_loader_rejects_duplicate_keys(self) -> None:
+        from validate_honing_report import load_json as load_honing_json
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "honing.json"
+            path.write_text('{"run_type":"source-grounded","run_type":"diagnostic"}', encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                load_honing_json(path)
+
     def test_skipped_only_python_suite_is_not_passed_by_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -316,6 +326,55 @@ class FixtureOutcomeTests(unittest.TestCase):
                 classify_test_outcome(execution, {"framework": "node-test", "test_count_min": 1})["outcome"],
                 "unexpected_test_error",
             )
+
+    def test_long_node_report_keeps_complete_structured_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            (tests / "long.test.cjs").write_text(
+                "const test = require('node:test');\n"
+                "test('x'.repeat(4200), () => {});\n",
+                encoding="utf-8",
+            )
+            fixture = {"id": "long-node", "test_command": ["node", "--test", "tests/long.test.cjs"]}
+            execution = run_fixture_command(fixture, root, 10)
+            self.assertTrue(execution["tests_passed"], execution)
+            self.assertEqual(parse_test_report(execution["report_output"], "node-test"), execution["test_report"])
+            self.assertNotEqual(parse_test_report(execution["stdout_tail"], "node-test"), execution["test_report"])
+
+    def test_fixture_target_snapshot_is_deterministic(self) -> None:
+        from fixture_runner import copy_fixture_repo, find_fixture, write_fixture_snapshot
+        from internal.evidence import validate_fixture_target_archive
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixture = find_fixture(SCRIPTS.parent / "fixtures", "hyg-031-sql-injection")
+            target = root / "edited"
+            copy_fixture_repo(fixture, target)
+            first, second = root / "first.zip", root / "second.zip"
+            write_fixture_snapshot(fixture, target, first)
+            write_fixture_snapshot(fixture, target, second)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            validate_fixture_target_archive(first, fixture)
+
+    def test_node_fixture_ignores_inherited_node_options(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tests = root / "tests"
+            tests.mkdir()
+            preload = root / "preload.cjs"
+            preload.write_text("process.env.GCH_PRELOADED = 'yes';\n", encoding="utf-8")
+            (tests / "clean.test.cjs").write_text(
+                "const test = require('node:test');\n"
+                "const assert = require('node:assert/strict');\n"
+                "test('clean environment', () => assert.equal(process.env.GCH_PRELOADED, undefined));\n",
+                encoding="utf-8",
+            )
+            fixture = {"id": "clean-node", "test_command": ["node", "--test", "tests/clean.test.cjs"]}
+            with patch.dict(os.environ, {"NODE_OPTIONS": f"--require={preload}"}):
+                execution = run_fixture_command(fixture, root, 10)
+            self.assertTrue(execution["tests_passed"], execution)
 
     def test_forged_python_stdout_is_not_a_test_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
