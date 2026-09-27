@@ -127,7 +127,7 @@ python scripts/fixture_runner.py --fixtures fixtures run --fixture hyg-006-curre
 python scripts/fixture_runner.py --fixtures fixtures snapshot --fixture hyg-006-currency-rounding --target runs/fixtures/hyg-006-currency-rounding --out runs/fixtures/hyg-006-target.zip
 python scripts/matrix_runner.py run --split all --loops 50 --variants-per-family 20 --work-root runs/matrix --out runs/matrix-50x.json
 python scripts/matrix_runner.py review --work-root runs/matrix-review --out runs/matrix-review.json
-python code-hygiene-compounder/scripts/promote_candidate.py --current path/to/canonical-trainer --candidate path/to/candidate --evidence-bundle path/to/promotion-bundle.json
+python scripts/promote_candidate.py --current path/to/canonical-trainer --candidate path/to/candidate --evidence-bundle path/to/promotion-bundle.json
 python scripts/export_claude_package.py --skill-root . --out-dir path/to/export
 python scripts/export_claude_package.py --skill-root . --out-dir path/to/export --format claude-ai-skill --zip-name code-hygiene-compounder-claude-ai.zip
 python scripts/export_claude_package.py --skill-root . --out-dir path/to/export --format legacy-command --zip-name code-hygiene-compounder-command.zip

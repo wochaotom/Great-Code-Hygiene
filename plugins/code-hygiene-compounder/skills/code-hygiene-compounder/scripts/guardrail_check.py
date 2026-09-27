@@ -17,18 +17,10 @@ sys.dont_write_bytecode = True
 
 from fixture_runner import load_fixtures
 from fixture_runner import validate_fixture
+from internal.package_meta import EXCLUDED_NAMES
 from pass100_runner import load_prompts
 
 
-EXCLUDED_NAMES = {
-    "runs",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".fixture-tmp",
-    ".fixture-work",
-    ".git",
-}
 ENTRYPOINTS = frozenset({
     "analyze_runs.py", "export_claude_package.py", "fixture_runner.py", "guardrail_check.py",
     "matrix_families.py", "matrix_runner.py", "pass100_runner.py", "promote_candidate.py",
@@ -51,12 +43,12 @@ def file_digest(path: Path) -> str:
 def tree_fingerprint(root: Path) -> dict[str, str]:
     files: dict[str, str] = {}
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = [name for name in dirnames if name not in EXCLUDED_NAMES]
+        dirnames[:] = [name for name in dirnames if name.casefold() not in EXCLUDED_NAMES]
         current_path = Path(current)
         for filename in filenames:
             path = current_path / filename
             relative = path.relative_to(root)
-            if any(part in EXCLUDED_NAMES for part in relative.parts):
+            if any(part.casefold() in EXCLUDED_NAMES for part in relative.parts):
                 continue
             files[relative.as_posix()] = file_digest(path)
     return files
@@ -198,8 +190,8 @@ def check_script_budget(skill_root: Path, args: argparse.Namespace, reporter: Re
 
     total_bytes = 0
     for current, dirs, files in os.walk(skill_root):
-        dirs[:] = [name for name in dirs if name not in EXCLUDED_NAMES]
-        total_bytes += sum((Path(current) / name).stat().st_size for name in files if name not in EXCLUDED_NAMES)
+        dirs[:] = [name for name in dirs if name.casefold() not in EXCLUDED_NAMES]
+        total_bytes += sum((Path(current) / name).stat().st_size for name in files if name.casefold() not in EXCLUDED_NAMES)
     check_maximum(reporter, "canonical distributable budget", total_bytes, args.max_distributable_bytes, "bytes")
 
 
@@ -214,9 +206,9 @@ def check_generated_noise(skill_root: Path, reporter: Reporter) -> None:
     for current, dirnames, filenames in os.walk(skill_root):
         current_path = Path(current)
         for dirname in list(dirnames):
-            if dirname in {".fixture-tmp", ".fixture-work", "__pycache__", ".pytest_cache", ".mypy_cache"}:
+            if dirname.casefold() in {".fixture-tmp", ".fixture-work", "__pycache__", ".pytest_cache", ".mypy_cache"}:
                 bad_dirs.append((current_path / dirname).relative_to(skill_root).as_posix())
-        dirnames[:] = [name for name in dirnames if name not in EXCLUDED_NAMES]
+        dirnames[:] = [name for name in dirnames if name.casefold() not in EXCLUDED_NAMES]
         for filename in filenames:
             if any(fnmatch.fnmatch(filename, pattern) for pattern in ("*.zip", "*.pyc", "*.pyo")):
                 bad_files.append((current_path / filename).relative_to(skill_root).as_posix())

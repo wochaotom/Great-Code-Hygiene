@@ -12,7 +12,7 @@
         "starting broad training or export work"
       ],
       "role": "active skill entrypoint and routing workflow",
-      "sha256": "2ee4975e92b691b9cd6ec539982402deb167ccf9ec66d35c00116288bbd1920d",
+      "sha256": "a36fc0d5b6fdf4e3b9103a41711438a5c3ca4763b0483d24d192ba1067ea34d0",
       "words": 1353
     },
     {
@@ -58,8 +58,8 @@
         "changing training, promotion, or compounding behavior"
       ],
       "role": "training and promotion protocol",
-      "sha256": "891f0979957639c931d551172a6a65dd7662fae05c243d6a3850c307b1a66105",
-      "words": 1123
+      "sha256": "5b4212b4cd65c8d6d938054a12dce11fbb562c136b08fe7750aa60633f20a74b",
+      "words": 1162
     },
     {
       "domains": [

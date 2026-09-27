@@ -199,6 +199,7 @@ def compare_paired_runs(current: list[dict], baseline: list[dict], plan: dict) -
     if errors:
         return None, errors
     deltas: list[float] = []
+    target_deltas: dict[str, list[float]] = {target: [] for target in targets}
     attempts: list[dict] = []
     critical_regressions: list[str] = []
     for key in sorted(expected):
@@ -215,6 +216,7 @@ def compare_paired_runs(current: list[dict], baseline: list[dict], plan: dict) -
             prior, latest = old_scores[prompt_id], new_scores[prompt_id]
             delta = float(latest["total"]) - float(prior["total"])
             deltas.append(delta)
+            target_deltas[key[0]].append(delta)
             attempts.append({"target_id": key[0], "trial": key[1], "prompt_id": prompt_id, "baseline": prior["total"], "candidate": latest["total"], "delta": delta})
             if prompt_id in critical:
                 for category in CRITICAL_CATEGORIES:
@@ -227,7 +229,9 @@ def compare_paired_runs(current: list[dict], baseline: list[dict], plan: dict) -
         "paired_count": len(deltas),
         "paired_deltas": attempts,
         "average_delta": round(average_delta, 2),
-        "delta_ci": normal_mean_interval(deltas, -100.0, 100.0),
+        "delta_ci": normal_mean_interval([mean(target_deltas[target]) for target in targets], -100.0, 100.0),
+        "uncertainty_unit": "target",
+        "independent_units": len(targets),
         "critical_regressions": critical_regressions,
         "regression_detected": average_delta < 0 or bool(critical_regressions),
     }, []
@@ -283,11 +287,20 @@ def build_summary_table(analysis: dict, threshold: float) -> list[dict]:
                 "baseline regression",
                 "no critical regression",
                 "regression" if comparison.get("regression_detected") else "no regression",
-                "fail" if comparison.get("regression_detected") else "pass",
+                "diagnostic" if comparison.get("eligibility", "").startswith("diagnostic-only") else "fail" if comparison.get("regression_detected") else "pass",
                 str(analysis.get("baseline", {}).get("result")),
             )
         )
     return rows
+
+
+def cohort_key(payload: dict) -> tuple:
+    return (
+        payload.get("run_type"), payload.get("schema_version", 1), payload.get("phase"),
+        payload.get("model"), payload.get("harness"),
+        json.dumps(payload.get("runtime"), sort_keys=True),
+        tuple(sorted(payload.get("prompt_ids", []))),
+    )
 
 
 def load_valid_payloads(
@@ -309,12 +322,7 @@ def load_valid_payloads(
             errors.append(f"duplicate run_id: {run_id}")
         if isinstance(run_id, str):
             seen_ids.add(run_id)
-        current_cohort = (
-            payload.get("run_type"), payload.get("schema_version", 1), payload.get("phase"),
-            payload.get("model"), payload.get("harness"),
-            json.dumps(payload.get("runtime"), sort_keys=True),
-            tuple(sorted(payload.get("prompt_ids", []))),
-        )
+        current_cohort = cohort_key(payload)
         if cohort is None:
             cohort = current_cohort
         elif current_cohort != cohort:
@@ -343,7 +351,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--suite", type=Path)
     parser.add_argument("--source-weights", type=Path)
     parser.add_argument("--threshold", type=float, default=85.0)
-    parser.add_argument("--regression-margin", type=float, default=0.5)
+    parser.add_argument("--regression-margin", type=float, default=0.0)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--log", type=Path)
     return parser
@@ -365,11 +373,12 @@ def main() -> None:
         "validations": validations,
         "statistics_note": (
             "PASS-100 score intervals use a 95% normal approximation; pass/resolved "
-            "rates use a 95% Wilson interval."
+            "rates use a 95% Wilson interval. Paired-delta intervals use target-level means."
         ),
         "aggregate": summarize_scores(collect_scores(payloads), args.threshold) if payloads else None,
         "baseline": None,
         "comparison": None,
+        "comparison_errors": [],
     }
 
     if args.baseline:
@@ -390,7 +399,10 @@ def main() -> None:
             "aggregate": baseline_summary,
         }
         analysis["valid"] = analysis["valid"] and all(item["valid"] for item in baseline_validations)
-        if args.plan:
+        if payloads and baseline_payloads and cohort_key(payloads[0]) != cohort_key(baseline_payloads[0]):
+            analysis["comparison_errors"].append("current and baseline cohorts differ in run type, schema, phase, model, harness, runtime, or prompts")
+            analysis["valid"] = False
+        elif args.plan:
             plan = load_json(args.plan)
             comparison, pair_errors = compare_paired_runs(payloads, baseline_payloads, plan)
             analysis["comparison"] = comparison

@@ -30,6 +30,46 @@ SYNTHETIC_PROMPTS = [item["id"] for item in load_prompts(SCRIPTS.parent / "refer
 
 
 class EvidenceBundleTests(unittest.TestCase):
+    def test_rollback_fixture_rejects_vacuous_rollback_test(self) -> None:
+        from fixture_runner import copy_fixture_repo, find_fixture, run_fixture_target
+
+        fixture = find_fixture(SCRIPTS.parent / "fixtures", "hyg-019-migration-forward-rollback")
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "repo"
+            copy_fixture_repo(fixture, target)
+            test_path = target / "tests" / "test_migration.py"
+            source = test_path.read_text(encoding="utf-8")
+            source = source.replace("from app.migration import forward", "from app.migration import forward, rollback")
+            source = source.replace(
+                "    def test_forward_adds_missing_column(self):",
+                "    def test_rollback_removes_column(self):\n"
+                "        schema = {'columns': ['id']}\n"
+                "        rollback(schema, 'email')\n"
+                "        self.assertNotIn('email', schema['columns'])\n\n"
+                "    def test_forward_adds_missing_column(self):",
+            )
+            test_path.write_text(source, encoding="utf-8")
+            result = run_fixture_target(fixture, target, 30)
+            self.assertFalse(result["resolved"], result)
+
+            migration_path = target / "app" / "migration.py"
+            migration_path.write_text(
+                migration_path.read_text(encoding="utf-8").replace(
+                    "def rollback(schema, column):\n    return schema",
+                    "def rollback(schema, column):\n    if column in schema['columns']:\n        schema['columns'].remove(column)\n    return schema",
+                ),
+                encoding="utf-8",
+            )
+            still_vacuous = run_fixture_target(fixture, target, 30)
+            self.assertFalse(still_vacuous["resolved"], still_vacuous)
+
+            test_path.write_text(source.replace(
+                "        rollback(schema, 'email')",
+                "        forward(schema, 'email')\n        rollback(schema, 'email')",
+            ), encoding="utf-8")
+            real_transition = run_fixture_target(fixture, target, 30)
+            self.assertTrue(real_transition["resolved"], real_transition)
+
     def test_fixture_target_archive_rejects_unsafe_and_modified_tests(self) -> None:
         from fixture_runner import find_fixture
 
@@ -301,16 +341,22 @@ class EvidenceBundleTests(unittest.TestCase):
         bundle["artifacts"].append({"id": identity, "path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
         manifest.write_text(json.dumps(bundle), encoding="utf-8")
 
-    def add_fixture_snapshot(self, manifest: Path, fixture_id: str, arm: str) -> None:
-        identity = f"target-{arm}"
+    def add_fixture_snapshot(self, manifest: Path, fixture_id: str, arm: str, *, solved: bool = False, identity: str | None = None) -> None:
+        identity = identity or f"target-{arm}"
         repo = SCRIPTS.parent / "fixtures" / fixture_id / "repo"
+        fixes = {
+            "hyg-031-sql-injection": ("app/users.py", b'def usernames_by_role(conn, role):\n    rows = conn.execute("SELECT username FROM users WHERE role = ? ORDER BY username", (role,)).fetchall()\n    return [row[0] for row in rows]\n'),
+            "hyg-006-currency-rounding": ("app/pricing.py", b'from decimal import Decimal, ROUND_HALF_UP\n\ndef total_cents(unit_price, quantity):\n    cents = Decimal(str(unit_price)) * quantity * 100\n    return int(cents.quantize(Decimal("1"), rounding=ROUND_HALF_UP))\n'),
+        }
         archive_path = manifest.parent / f"{identity}.zip"
         with zipfile.ZipFile(archive_path, "w") as archive:
             for path in sorted(repo.rglob("*")):
                 if path.is_file():
-                    entry = zipfile.ZipInfo(path.relative_to(repo).as_posix(), date_time=(1980, 1, 1, 0, 0, 0))
+                    relative = path.relative_to(repo).as_posix()
+                    entry = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
                     entry.external_attr = 0o100644 << 16
-                    archive.writestr(entry, path.read_bytes())
+                    content = fixes[fixture_id][1] if solved and relative == fixes[fixture_id][0] else path.read_bytes()
+                    archive.writestr(entry, content)
         bundle = json.loads(manifest.read_text(encoding="utf-8"))
         bundle["artifacts"].append({"id": identity, "path": archive_path.name, "sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest()})
         manifest.write_text(json.dumps(bundle), encoding="utf-8")
@@ -341,8 +387,13 @@ class EvidenceBundleTests(unittest.TestCase):
         entry["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
         manifest.write_text(json.dumps(bundle), encoding="utf-8")
 
-    def rebind_review(self, manifest: Path) -> None:
+    def rebind_review(self, manifest: Path, *, bind_plan: bool = True) -> None:
         bundle = json.loads(manifest.read_text(encoding="utf-8"))
+        if bind_plan:
+            plan_sha = next(entry["sha256"] for entry in bundle["artifacts"] if entry["id"] == "plan")
+            for entry in bundle["runs"]:
+                self.rewrite_artifact(manifest, entry["execution_artifact"], lambda payload: payload.update(plan_sha256=plan_sha))
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
         artifacts = {entry["id"]: entry["sha256"] for entry in bundle["artifacts"]}
         review = json.loads((manifest.parent / "review.json").read_text(encoding="utf-8"))
         inspected = review["inspected_artifact_ids"]
@@ -384,6 +435,7 @@ class EvidenceBundleTests(unittest.TestCase):
 
         target_artifact = add("target-a-snapshot", "synthetic target source snapshot")
         add("plan", {"schema_version": 2, "declared_at": "2026-01-01T00:00:00Z", "run_type": "model-execution", "mode": "focused", "categories": [SYNTHETIC_CATEGORY], "target_ids": ["target-a"], "target_artifacts": {"target-a": target_artifact}, "trial_count": 1, "prompt_ids": SYNTHETIC_PROMPTS, "critical_prompt_ids": SYNTHETIC_PROMPTS, "model": "test-model", "harness": "test-harness", "runtime": runtime, "controls": controls, "applicable_fixture_ids": [], "fixture_na_reason": "No fixture maps to synthetic documentation category", "improvement": {"type": "score"}, "source_backed": False})
+        plan_sha = next(entry["sha256"] for entry in artifacts if entry["id"] == "plan")
         runs = []
         inspected = [target_artifact, "plan"]
         for arm in ("baseline", "candidate"):
@@ -399,7 +451,7 @@ class EvidenceBundleTests(unittest.TestCase):
             result = {"schema_version": 2, "run_id": run_id, "run_type": "model-execution", "phase": 0, "target_id": "target-a", "trial": 1, "arm": arm, "model": "test-model", "harness": "test-harness", "runtime": runtime, "skill_version": "0.3.0", "skill_fingerprint": skill_fingerprint, "started_at": "2026-01-02T00:00:00Z", "completed_at": "2026-01-02T00:01:00Z", "prompt_ids": SYNTHETIC_PROMPTS, "scores": scores}
             output_id = add(f"output-{arm}", f"captured {arm} model output")
             output_sha = next(entry["sha256"] for entry in artifacts if entry["id"] == output_id)
-            execution_id = add(f"execution-{arm}", {"run_id": run_id, "operator_id": "test-operator", "target_id": "target-a", "target_artifact": target_artifact, "trial": 1, "arm": arm, "model": "test-model", "harness": "test-harness", "runtime": runtime, "skill_fingerprint": skill_fingerprint, "fresh_context": True, "scored_candidate_trial": True, "process_exit": 0, "argv": ["codex", "exec"], "output_artifact": output_id, "output_sha256": output_sha, "started_at": "2026-01-02T00:00:00Z", "ended_at": "2026-01-02T00:01:00Z"})
+            execution_id = add(f"execution-{arm}", {"run_id": run_id, "operator_id": "test-operator", "target_id": "target-a", "target_artifact": target_artifact, "plan_sha256": plan_sha, "trial": 1, "arm": arm, "model": "test-model", "harness": "test-harness", "runtime": runtime, "skill_fingerprint": skill_fingerprint, "fresh_context": True, "scored_candidate_trial": True, "process_exit": 0, "argv": ["codex", "exec"], "output_artifact": output_id, "output_sha256": output_sha, "started_at": "2026-01-02T00:00:00Z", "ended_at": "2026-01-02T00:01:00Z"})
             verification_id = add(f"verification-{arm}", {"run_id": run_id, "status": "pass", "fixture_results": []})
             result_id = add(f"result-{arm}", result)
             runs.append({"target_id": "target-a", "trial": 1, "arm": arm, "result_artifact": result_id, "execution_artifact": execution_id, "output_artifact": output_id, "verification_artifact": verification_id})
@@ -440,6 +492,16 @@ class EvidenceBundleTests(unittest.TestCase):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertFalse(decision["promotion_ready"], decision["gates"])
             self.assertEqual(next(g for g in decision["gates"] if g["name"] == "artifact_stability")["status"], "fail")
+
+    def test_posthoc_plan_change_cannot_rebind_existing_executions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            self.rewrite_artifact(manifest, "plan", lambda payload: payload.update(declared_at="2025-12-31T00:00:00Z"))
+            self.rebind_review(manifest, bind_plan=False)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertFalse(decision["promotion_ready"], decision["gates"])
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "matched_trials")["status"], "fail")
 
     def test_accepted_path_uses_real_package_parity(self) -> None:
         from export_claude_package import sync_repo
@@ -533,7 +595,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 ))
                 failure = arm == "baseline"
                 report = {"framework": "python-unittest", "tests_run": 2, "skipped": 0, "expected_failures": 0,
-                          "failures": signature if failure else [], "errors": [], "passed": ["test_users.UserQueryTests.test_safe_role_returns_users"] if failure else signature + ["test_users.UserQueryTests.test_safe_role_returns_users"]}
+                          "failures": signature if failure else [], "errors": [], "passed": ["test_users.UserQueryTests.test_returns_matching_role"] if failure else signature + ["test_users.UserQueryTests.test_returns_matching_role"]}
                 identity = f"fixture-{arm}"
                 self.add_artifact(manifest, identity, {
                     "fixture_id": fixture_id, "run_id": f"run-{arm}", "target_id": "target-a", "trial": 1, "arm": arm,
@@ -559,12 +621,45 @@ class EvidenceBundleTests(unittest.TestCase):
             self.rebind_review(manifest)
             with patch("validate_package.validate", return_value={"valid": True}):
                 with_snapshots = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
-            self.assertEqual(next(g for g in with_snapshots["gates"] if g["name"] == "matched_trials")["status"], "pass", with_snapshots["gates"])
+            self.assertEqual(next(g for g in with_snapshots["gates"] if g["name"] == "matched_trials")["status"], "fail", with_snapshots["gates"])
+
+            self.add_fixture_snapshot(manifest, fixture_id, "candidate", solved=True, identity="target-candidate-fixed")
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                fixed_candidate = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in fixed_candidate["gates"] if g["name"] == "matched_trials")["status"], "pass", fixed_candidate["gates"])
+
+            def invent_test_identity(payload: dict) -> None:
+                report = payload["test_report"]
+                report["passed"] = ["test_users.UserQueryTests.test_injected_role_does_not_return_admins", "test_users.UserQueryTests.test_invented"]
+                payload.update(report_output="CODE_HYGIENE_TEST_RESULT=" + json.dumps(report, sort_keys=True))
+
+            self.rewrite_artifact(manifest, "fixture-candidate", invent_test_identity)
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                invented_identity = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in invented_identity["gates"] if g["name"] == "matched_trials")["status"], "fail", invented_identity["gates"])
+            self.rewrite_artifact(manifest, "fixture-candidate", lambda payload: (
+                payload["test_report"].update(
+                    tests_run=3,
+                    passed=signature + ["test_users.UserQueryTests.test_returns_matching_role", "test_users.UserQueryTests.test_invented"],
+                ),
+                payload.update(report_output="CODE_HYGIENE_TEST_RESULT=" + json.dumps(payload["test_report"], sort_keys=True)),
+            ))
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                extra_identity = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in extra_identity["gates"] if g["name"] == "matched_trials")["status"], "fail", extra_identity["gates"])
+            self.rewrite_artifact(manifest, "fixture-candidate", lambda payload: (
+                payload["test_report"].update(tests_run=2, passed=signature + ["test_users.UserQueryTests.test_returns_matching_role"]),
+                payload.update(report_output="CODE_HYGIENE_TEST_RESULT=" + json.dumps(payload["test_report"], sort_keys=True)),
+            ))
+            self.rebind_review(manifest)
 
             def baseline_model_fixed_fixture(payload: dict) -> None:
                 report = payload["test_report"]
                 report["failures"] = []
-                report["passed"] = signature + ["test_users.UserQueryTests.test_safe_role_returns_users"]
+                report["passed"] = signature + ["test_users.UserQueryTests.test_returns_matching_role"]
                 payload.update(
                     outcome="pass", resolved=True, signature_matched=False, tests_passed=True,
                     exit_code=0, stdout_tail="CODE_HYGIENE_TEST_RESULT=" + json.dumps(report, sort_keys=True),
@@ -572,6 +667,11 @@ class EvidenceBundleTests(unittest.TestCase):
                 )
 
             self.rewrite_artifact(manifest, "fixture-baseline", baseline_model_fixed_fixture)
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                fixed_baseline = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in fixed_baseline["gates"] if g["name"] == "matched_trials")["status"], "fail", fixed_baseline["gates"])
+            self.add_fixture_snapshot(manifest, fixture_id, "baseline", solved=True, identity="target-baseline-fixed")
             self.rebind_review(manifest)
             with patch("validate_package.validate", return_value={"valid": True}):
                 fixed_baseline = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
@@ -911,6 +1011,22 @@ class EvidenceBundleTests(unittest.TestCase):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertEqual(next(g for g in decision["gates"] if g["name"] == "matched_trials")["status"], "fail")
 
+    def test_target_snapshot_cannot_double_as_captured_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            target_path = Path(temp) / "target-a-snapshot.json"
+            self.rewrite_artifact(manifest, "execution-baseline", lambda payload: payload.update(
+                output_artifact="target-a-snapshot",
+                output_sha256=hashlib.sha256(target_path.read_bytes()).hexdigest(),
+            ))
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            bundle["runs"][0]["output_artifact"] = "target-a-snapshot"
+            manifest.write_text(json.dumps(bundle), encoding="utf-8")
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "matched_trials")["status"], "fail")
+
     def test_fixture_result_cannot_be_claimed_by_another_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
@@ -928,7 +1044,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 self.add_artifact(manifest, artifact_id, {"fixture_id": fixture_id, "run_id": f"run-{arm}", "target_id": "target-a", "trial": 1, "arm": arm, "skill_fingerprint": tree_digest(current if baseline_failure else candidate), "outcome": "expected_assertion_failure" if baseline_failure else "pass", "resolved": not baseline_failure, "signature_matched": baseline_failure, "protected_files_ok": True, "tests_passed": not baseline_failure, "exit_code": 1 if baseline_failure else 0, "timed_out": False, "framework": "python-unittest", "command": [sys.executable, "-m", "unittest", "discover", "-s", "tests"], "stdout_tail": "CODE_HYGIENE_TEST_RESULT=" + json.dumps(report), "report_output": "CODE_HYGIENE_TEST_RESULT=" + json.dumps(report), "test_report": report})
                 self.rewrite_artifact(manifest, f"verification-{arm}", lambda payload: payload.update(fixture_results=[{"fixture_id": fixture_id, "result_artifact": artifact_id}]))
                 self.rewrite_artifact(manifest, "review", lambda payload: payload["inspected_artifact_ids"].append(artifact_id))
-                self.add_fixture_snapshot(manifest, fixture_id, arm)
+                self.add_fixture_snapshot(manifest, fixture_id, arm, solved=arm == "candidate")
             self.rebind_review(manifest)
             with patch("validate_package.validate", return_value={"valid": True}):
                 valid = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
@@ -1050,7 +1166,7 @@ class EvidenceBundleTests(unittest.TestCase):
                 self.add_artifact(manifest, artifact_id, {"fixture_id": fixture_id, "run_id": f"run-{arm}", "target_id": "target-a", "trial": 1, "arm": arm, "skill_fingerprint": tree_digest(current if baseline_failure else candidate), "outcome": "expected_assertion_failure" if baseline_failure else "pass", "resolved": not baseline_failure, "signature_matched": baseline_failure, "protected_files_ok": True, "tests_passed": not baseline_failure, "exit_code": 1 if baseline_failure else 0, "timed_out": False, "framework": "python-unittest", "command": [sys.executable, "-m", "unittest", "discover", "-s", "tests"], "stdout_tail": "CODE_HYGIENE_TEST_RESULT=" + json.dumps(report), "report_output": "CODE_HYGIENE_TEST_RESULT=" + json.dumps(report), "test_report": report})
                 self.rewrite_artifact(manifest, f"verification-{arm}", lambda payload: payload.update(fixture_results=[{"fixture_id": fixture_id, "result_artifact": artifact_id}]))
                 self.rewrite_artifact(manifest, "review", lambda payload: payload["inspected_artifact_ids"].append(artifact_id))
-                self.add_fixture_snapshot(manifest, fixture_id, arm)
+                self.add_fixture_snapshot(manifest, fixture_id, arm, solved=arm == "candidate")
             self.rebind_review(manifest)
             with patch("validate_package.validate", return_value={"valid": True}):
                 passing = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
@@ -1079,6 +1195,16 @@ class EvidenceBundleTests(unittest.TestCase):
             with patch("validate_package.validate", return_value={"valid": True}):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertFalse(decision["promotion_ready"])
+            self.assertEqual(next(g for g in decision["gates"] if g["name"] == "independent_review")["status"], "fail")
+
+    def test_reviewer_identity_is_normalized_against_operator(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            manifest, current, candidate = self.make_synthetic_bundle(Path(temp))
+            self.rewrite_artifact(manifest, "review", lambda payload: payload.update(reviewer_id="TEST-OPERATOR "))
+            self.rebind_review(manifest)
+            self.rewrite_artifact(manifest, "reviewer-execution", lambda payload: payload.update(reviewer_id="TEST-OPERATOR "))
+            with patch("validate_package.validate", return_value={"valid": True}):
+                decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertEqual(next(g for g in decision["gates"] if g["name"] == "independent_review")["status"], "fail")
 
     def test_package_parity_is_required(self) -> None:
@@ -1117,7 +1243,8 @@ class EvidenceBundleTests(unittest.TestCase):
                 snapshot_id = f"{target}-snapshot"
                 self.add_artifact(manifest, snapshot_id, {"source": target})
                 target_artifacts[target] = snapshot_id
-            self.rewrite_artifact(manifest, "plan", lambda payload: payload.update(mode="hard", target_ids=list(target_artifacts), target_artifacts=target_artifacts))
+            provenance = {target: {"repository": "https://example.invalid/repo", "revision": "abc123", "task": target} for target in target_artifacts}
+            self.rewrite_artifact(manifest, "plan", lambda payload: payload.update(mode="hard", target_ids=list(target_artifacts), target_artifacts=target_artifacts, target_provenance=provenance))
             added_runs = []
             inspected = ["target-b-snapshot", "target-c-snapshot"]
             for target in ("target-b", "target-c"):
@@ -1138,7 +1265,10 @@ class EvidenceBundleTests(unittest.TestCase):
                     self.add_artifact(manifest, verification_id, verification)
                     added_runs.append({"target_id": target, "trial": 1, "arm": arm, "result_artifact": result_id, "execution_artifact": execution_id, "output_artifact": output_id, "verification_artifact": verification_id})
                     inspected.extend((result_id, execution_id, output_id, verification_id))
-            self.rewrite_artifact(manifest, "review", lambda payload: payload["inspected_artifact_ids"].extend(inspected))
+            self.rewrite_artifact(manifest, "review", lambda payload: (
+                payload["inspected_artifact_ids"].extend(inspected),
+                payload.update(independent_target_ids=list(target_artifacts)),
+            ))
             bundle = json.loads(manifest.read_text(encoding="utf-8"))
             bundle["runs"].extend(added_runs)
             manifest.write_text(json.dumps(bundle), encoding="utf-8")
@@ -1146,6 +1276,14 @@ class EvidenceBundleTests(unittest.TestCase):
             with patch("validate_package.validate", return_value={"valid": True}):
                 decision = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
             self.assertTrue(decision["promotion_ready"], decision["gates"])
+
+            self.rewrite_artifact(manifest, "plan", lambda payload: payload["target_provenance"].update(
+                {"target-c": payload["target_provenance"]["target-b"]},
+            ))
+            self.rebind_review(manifest)
+            with patch("validate_package.validate", return_value={"valid": True}):
+                duplicate_origin = evaluate_bundle(manifest, current, candidate, SCRIPTS.parent)
+            self.assertEqual(next(g for g in duplicate_origin["gates"] if g["name"] == "hard_target_count")["status"], "fail")
 
     def test_runtime_identity_is_required(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

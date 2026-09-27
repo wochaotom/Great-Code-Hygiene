@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1] / "code-hygiene-compounder" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from analyze_runs import compare_paired_runs, load_valid_payloads, normal_mean_interval, wilson_interval
+from analyze_runs import build_parser, compare_paired_runs, load_valid_payloads, normal_mean_interval, wilson_interval
 from internal.policy import CATEGORY_KEYS
 from internal.policy import RUBRIC_CAPS
 
@@ -62,6 +63,33 @@ class AnalysisContractTests(unittest.TestCase):
         comparison, errors = compare_paired_runs(candidate, baseline, plan)
         self.assertIsNone(comparison)
         self.assertTrue(errors)
+
+    def test_cross_type_baseline_comparison_is_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            current, baseline = Path(temp) / "current.json", Path(temp) / "baseline.json"
+            current.write_text(json.dumps(result("candidate", "script-only")), encoding="utf-8")
+            baseline.write_text(json.dumps(result("baseline", "audit-backed")), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, "-B", str(SCRIPTS / "analyze_runs.py"), "--results", str(current), "--baseline", str(baseline)],
+                capture_output=True, text=True,
+            )
+            report = json.loads(completed.stdout)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertFalse(report["valid"])
+            self.assertIsNone(report["comparison"])
+            self.assertTrue(report["comparison_errors"])
+
+    def test_paired_interval_uses_independent_targets_not_prompt_count(self) -> None:
+        plan = {"target_ids": ["target-a"], "trial_count": 1, "prompt_ids": ["HYG-001", "HYG-002"], "critical_prompt_ids": ["HYG-001", "HYG-002"]}
+        before = {"target_id": "target-a", "trial": 1, "schema_version": 2, "arm": "baseline", "run_type": "model-execution", "model": "test", "harness": "test", "runtime": {}, "phase": 0,
+                  "scores": [{"prompt_id": prompt, "total": total, "categories": CATEGORY_KEYS} for prompt, total in (("HYG-001", 80), ("HYG-002", 90))]}
+        after = {**before, "arm": "candidate", "scores": [{"prompt_id": prompt, "total": total, "categories": CATEGORY_KEYS} for prompt, total in (("HYG-001", 90), ("HYG-002", 95))]}
+        comparison, errors = compare_paired_runs([after], [before], plan)
+        self.assertFalse(errors)
+        self.assertIsNone(comparison["delta_ci"]["low"])
+
+    def test_unpaired_diagnostic_margin_defaults_to_zero(self) -> None:
+        self.assertEqual(build_parser().parse_args(["--results", "result.json"]).regression_margin, 0.0)
 
 
 if __name__ == "__main__":

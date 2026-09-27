@@ -339,7 +339,11 @@ The current-skill model arm may fix that fixture or fail with the known
 assertion signature; the candidate arm must pass. Every repository fixture run
 must bind a hashed ZIP snapshot of its edited target to its execution,
 verification result, and independent review. The archive is checked for unsafe
-paths and protected-test changes. Use `fixture_runner.py snapshot` after running
+paths and protected-test changes. A pass claim cannot use a snapshot identical
+to the known-failing accepted source, and a report must retain every test
+identity observed in the untouched baseline (exactly those identities when
+all test files are protected). Each execution also carries the
+predeclared plan hash. Use `fixture_runner.py snapshot` after running
 the tests to create it. This binding makes the edited target inspectable but
 does not, by itself, prove the recorded tests ran on that exact archive.
 Edited fixture targets are executable code. Run them only in an appropriately

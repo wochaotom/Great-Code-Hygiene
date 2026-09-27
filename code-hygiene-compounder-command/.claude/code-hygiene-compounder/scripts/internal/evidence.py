@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from statistics import mean
 
 from analyze_runs import collect_scores, compare_paired_runs, summarize_scores
+from internal.package_meta import EXCLUDED_NAMES
 from internal.policy import CATEGORY_KEYS, CRITICAL_CATEGORIES, PROMOTION_THRESHOLD
 from internal.json_integrity import loads_strict
 from fixture_runner import classify_test_outcome, copy_fixture_repo, executed_test_count, parse_test_report, run_fixture_target
@@ -24,9 +25,8 @@ from pass100_runner import load_prompts
 from validate_results import SOURCE_ID_FALLBACKS, load_source_ids, validate_payload
 
 
-SKIP_NAMES = frozenset({"runs", "__pycache__", ".pytest_cache", ".mypy_cache", ".fixture-work", ".fixture-tmp", ".git"})
 PACKAGE_ROOTS = frozenset({"SKILL.md", ".claude-plugin", "agents", "fixtures", "references", "scripts"})
-FOLDED_SKIP_NAMES = frozenset(name.casefold() for name in SKIP_NAMES) | {"dist"}
+FOLDED_SKIP_NAMES = frozenset(name.casefold() for name in EXCLUDED_NAMES)
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 CONTROL_PATHS = (
     ".claude-plugin/plugin.json", "agents", "fixtures", "scripts",
@@ -298,7 +298,7 @@ def verify_transcript_fixture(fixture: dict, result: dict, entry: dict, paths: d
     )
 
 
-def validate_fixture_target_archive(archive_path: Path, fixture: dict) -> None:
+def validate_fixture_target_archive(archive_path: Path, fixture: dict) -> bool:
     fixture_root = Path(fixture["_fixture_root"]) / fixture["repo_dir"]
     files: dict[str, str] = {}
     total_size = 0
@@ -339,6 +339,12 @@ def validate_fixture_target_archive(archive_path: Path, fixture: dict) -> None:
             raise ValueError(f"fixture target archive changes protected file: {relative}")
     if not any(not name.startswith("tests/") for name in files):
         raise ValueError("fixture target archive has no source files")
+    accepted_source = {
+        path.relative_to(fixture_root).as_posix().casefold(): digest(path)
+        for path in fixture_root.rglob("*")
+        if path.is_file() and not path.relative_to(fixture_root).as_posix().casefold().startswith("tests/")
+    }
+    return {name: value for name, value in files.items() if not name.startswith("tests/")} != accepted_source
 
 
 def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_root: Path) -> dict:
@@ -428,6 +434,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         return incomplete_decision(decision)
     if not valid_plan:
         return incomplete_decision(decision)
+    plan_sha256 = digest(paths[bundle["plan_artifact"]])
 
     categories = plan.get("categories")
     suite_categories = {item["category"] for item in suite_prompts}
@@ -451,8 +458,17 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
 
     target_hashes = {target: digest(paths[identity]) for target, identity in target_artifacts.items()}
     if plan["mode"] == "hard":
-        hard_ok = len(targets) >= 3 and len(set(target_hashes.values())) == len(targets)
-        gate(gates, "hard_target_count", hard_ok, "three distinct target snapshots")
+        provenance = plan.get("target_provenance")
+        origins = []
+        if isinstance(provenance, dict) and set(provenance) == set(targets):
+            for target in targets:
+                item = provenance[target]
+                if not isinstance(item, dict) or any(not isinstance(item.get(field), str) or not item[field].strip() for field in ("repository", "revision", "task")):
+                    break
+                origins.append((item["repository"].strip().casefold(), item["revision"].strip(), item["task"].strip().casefold()))
+        hard_ok = (len(targets) >= 3 and len(set(target_hashes.values())) == len(targets)
+                   and len(origins) == len(targets) and len(set(origins)) == len(targets))
+        gate(gates, "hard_target_count", hard_ok, "three distinct target snapshots with declared provenance" if hard_ok else "hard mode lacks three distinct targets and origins")
     else:
         gates.append({"name": "hard_target_count", "status": "not-applicable", "detail": "focused mode does not require three targets"})
     fixture_manifests: dict[str, dict] = {}
@@ -473,6 +489,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             gate(gates, "fixture_applicability", fixture_match, "accepted matching fixtures declared" if fixture_match else "declared fixtures differ from accepted prompt matches")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         gate(gates, "fixture_applicability", False, str(exc))
+    baseline_test_ids: dict[str, set[str]] = {}
     if not fixture_manifests:
         if any(item["name"] == "fixture_applicability" and item["status"] == "not-applicable" for item in gates):
             gates.append({"name": "fixture_baseline", "status": "not-applicable", "detail": plan["fixture_na_reason"]})
@@ -493,6 +510,14 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                                  and observed_baseline["signature_matched"] is expected_failure
                                  and observed_baseline["protected_files_ok"] is True
                                  and observed_baseline["resolved"] is (not expected_failure))
+                    if fixture.get("mode", "repo") == "repo":
+                        report = observed_baseline.get("test_report")
+                        if not isinstance(report, dict):
+                            raise ValueError(f"accepted fixture lacks structured test identities: {fixture_id}")
+                        baseline_test_ids[fixture_id] = {
+                            identity for field in ("passed", "failures", "errors")
+                            for identity in report.get(field, [])
+                        }
                     baseline_checks.append({"fixture_id": fixture_id, "outcome": observed_baseline["outcome"], "confirmed": confirmed})
             decision["fixture_baselines"] = baseline_checks
             gate(gates, "fixture_baseline", all(item["confirmed"] for item in baseline_checks),
@@ -527,7 +552,10 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
     output_ids: set[str] = set()
     fixture_result_ids: set[str] = set()
     fixture_target_ids: set[str] = set()
-    execution_ids: set[str] = set()
+    role_ids: set[str] = {
+        bundle["plan_artifact"], *target_artifacts.values(),
+        bundle.get("review_artifact"), bundle.get("reviewer_execution_artifact"), bundle.get("honing_artifact"),
+    }
     inspected_ids: set[str] = {bundle["plan_artifact"], *target_artifacts.values()}
     if plan.get("source_backed") is True:
         honing_id = bundle.get("honing_artifact")
@@ -541,6 +569,10 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         try:
             if not isinstance(entry, dict):
                 raise ValueError("run entry must be an object")
+            run_roles = [entry.get(name) for name in ("result_artifact", "execution_artifact", "verification_artifact", "output_artifact")]
+            if any(not isinstance(identity, str) or identity in role_ids for identity in run_roles) or len(set(run_roles)) != len(run_roles):
+                raise ValueError("evidence artifact is reused across roles or runs")
+            role_ids.update(run_roles)
             key = (entry["target_id"], entry["trial"], entry["arm"])
             if key in observed or key not in expected_keys:
                 raise ValueError(f"duplicate or undeclared run: {key}")
@@ -558,6 +590,8 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     raise ValueError(f"{field} identity mismatch")
             if execution.get("target_artifact") != target_artifacts[key[0]]:
                 raise ValueError("execution target snapshot mismatch")
+            if execution.get("plan_sha256") != plan_sha256:
+                raise ValueError("execution plan fingerprint mismatch")
             run_id = result.get("run_id")
             if not isinstance(run_id, str) or not run_id or run_id in run_ids or execution.get("run_id") != run_id:
                 raise ValueError("duplicate or inconsistent run_id")
@@ -583,7 +617,7 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
             operator_id = execution.get("operator_id")
             if not isinstance(operator_id, str) or not operator_id.strip():
                 raise ValueError("execution operator identity is missing")
-            operator_ids.add(operator_id)
+            operator_ids.add(operator_id.strip().casefold())
             if execution.get("output_artifact") != output_id or execution.get("output_sha256") != digest(paths[output_id]):
                 raise ValueError("execution output fingerprint mismatch")
             execution_start = parse_time(execution.get("started_at"))
@@ -610,6 +644,9 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                 if fixture is None:
                     raise ValueError(f"unknown accepted fixture: {fixture_id}")
                 fixture_result_id = fixture_entry.get("result_artifact")
+                if fixture_result_id in role_ids:
+                    raise ValueError(f"fixture result reuses an evidence role: {fixture_id}")
+                role_ids.add(fixture_result_id)
                 fixture_result = artifact_json(paths, fixture_result_id)
                 if fixture_result_id in fixture_result_ids:
                     raise ValueError(f"fixture result is reused across runs: {fixture_result_id}")
@@ -620,11 +657,15 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     if (not isinstance(target_archive_id, str) or target_archive_id not in paths
                             or fixture_result.get("target_artifact") != target_archive_id
                             or fixture_targets.get(fixture_id) != target_archive_id
-                            or target_archive_id in fixture_target_ids):
+                            or target_archive_id in fixture_target_ids or target_archive_id in role_ids):
                         raise ValueError(f"edited fixture target is missing or reused: {fixture_id}")
                     fixture_target_ids.add(target_archive_id)
+                    role_ids.add(target_archive_id)
                     inspected_ids.add(target_archive_id)
-                    validate_fixture_target_archive(paths[target_archive_id], fixture)
+                    source_changed = validate_fixture_target_archive(paths[target_archive_id], fixture)
+                    if (fixture["baseline_expected"] == "fail" and fixture_result.get("outcome") == "pass"
+                            and not source_changed):
+                        raise ValueError(f"passing fixture target is identical to the known-failing source: {fixture_id}")
                 baseline_failure = (key[2] == "baseline" and fixture.get("baseline_expected") == "fail"
                                     and fixture_result.get("outcome") == "expected_assertion_failure")
                 expected_outcome = "expected_assertion_failure" if baseline_failure else "pass"
@@ -642,6 +683,20 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                     command = fixture_result.get("command")
                     captured = fixture_result.get("report_output")
                     classification = classify_test_outcome(fixture_result, signature)
+                    reported_test_ids = {
+                        identity for field in ("passed", "failures", "errors")
+                        for identity in report.get(field, [])
+                    } if isinstance(report, dict) else set()
+                    if not baseline_test_ids.get(fixture_id, set()).issubset(reported_test_ids):
+                        raise ValueError(f"fixture report omits an accepted test identity: {fixture_id}")
+                    fixture_repo = Path(fixture["_fixture_root"]) / fixture["repo_dir"]
+                    test_files = {
+                        path.relative_to(fixture_repo).as_posix().casefold()
+                        for path in (fixture_repo / "tests").rglob("*") if path.is_file()
+                    }
+                    protected = {path.casefold() for path in fixture["protected_files"]}
+                    if test_files.issubset(protected) and reported_test_ids != baseline_test_ids.get(fixture_id, set()):
+                        raise ValueError(f"fixture report invents a test identity in protected tests: {fixture_id}")
                     if (fixture_result.get("protected_files_ok") is not True
                             or fixture_result.get("tests_passed") is not (not baseline_failure)
                             or fixture_result.get("timed_out") is not False
@@ -663,7 +718,6 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
                         raise ValueError(f"transcript verification incomplete: {fixture_id}")
             for artifact_key in ("result_artifact", "execution_artifact", "output_artifact", "verification_artifact"):
                 inspected_ids.add(entry[artifact_key])
-            execution_ids.add(entry["execution_artifact"])
             observed[key] = result
         except (KeyError, OSError, ValueError, TypeError, RuntimeError, NotImplementedError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
             problems.append(str(exc))
@@ -689,7 +743,10 @@ def evaluate_bundle(manifest: Path, current: Path, candidate: Path, accepted_roo
         reviewer_ok = (
             reviewer.get("verdict") == "approve" and reviewer.get("independent") is True
             and isinstance(reviewer.get("reviewer_id"), str) and reviewer["reviewer_id"].strip()
-            and reviewer["reviewer_id"] not in operator_ids
+            and reviewer["reviewer_id"].strip().casefold() not in operator_ids
+            and (plan["mode"] != "hard" or isinstance(reviewer.get("independent_target_ids"), list)
+                 and len(reviewer["independent_target_ids"]) == len(targets)
+                 and set(reviewer["independent_target_ids"]) == set(targets))
             and isinstance(reviewed_ids, list) and all(isinstance(item, str) for item in reviewed_ids)
             and len(reviewed_ids) == len(set(reviewed_ids)) and set(reviewed_ids) == inspected_ids
             and reviewer.get("inspected_artifact_hashes") == inspected_hashes

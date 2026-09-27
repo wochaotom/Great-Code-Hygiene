@@ -48,7 +48,7 @@ Generated matrix variants are candidate evidence only. Use them to expose failur
 - Predeclare the failure family before fixing; reject evidence that drifts into another family.
 - Build parent-plus-tests targets from permissively licensed real repos, keeping upstream source fixes hidden until the local attempted patch is complete.
 - Use hidden or synthesized checks only as verification, not as the primary signal that guided the fix.
-- Require at least three independent real-code targets before promotion, and prefer multiple ecosystems when feasible.
+- Require at least three independent real-code targets before promotion, with distinct target snapshots, predeclared repository/revision/task provenance, and an explicit fresh reviewer attestation; prefer multiple ecosystems when feasible. These records are still attestations, not protection against a fabricated operator.
 - If the recurrence is already explained by an existing lesson, record a no-promotion result instead of adding another rule.
 
 ## Promotion Gates
@@ -66,7 +66,7 @@ Promote automatically only when all conditions hold:
 - Candidate change is tied to an observed failure, repeated real-use miss, or source-backed rule.
 - Candidate source-backed rules must reference `source-registry.md` or an admitted, weighted source.
 - Source-grounded promotions require a valid honing report checked by `scripts/validate_honing_report.py` and referenced in the versioned evidence bundle.
-- Only a v2 evidence bundle containing predeclared matched trials, hashed external execution records, verification artifacts, and a separate raw fresh-reviewer output matching the review report can authorize `promote_candidate.py --apply`. Repository fixture runs bind a hashed edited-target ZIP snapshot to the execution, verification result, and reviewer inspection; structured `report_output` is retained in full for test classification. Accepted controls must match the installed baseline and remain outside the candidate tree. Legacy `--score` remains diagnostic-only.
+- Only a v2 evidence bundle containing predeclared matched trials, hashed external execution records bound to the plan hash, verification artifacts, and a separate raw fresh-reviewer output matching the review report can authorize `promote_candidate.py --apply`. Repository fixture runs bind a hashed edited-target ZIP snapshot to the execution, verification result, and reviewer inspection; a passing snapshot cannot be identical to the known-failing accepted source. Structured `report_output` is retained in full for test classification. Accepted controls must match the installed baseline and remain outside the candidate tree. Legacy `--score` remains diagnostic-only.
 - Instruction length stays concise; longer updates need measurable benefit.
 - Equal-score size promotions must reduce the combined bytes of `SKILL.md` and eligible instruction files under `references/` by at least 32 bytes, including at least 16 non-whitespace bytes. Generated index JSON, its schema, source weights, agent metadata, and plugin metadata do not count as instructions; applicable controls are pinned separately. Excluded runtime paths and unregistered package roots cannot be introduced; moving instructions to another file or trimming whitespace alone does not qualify.
 - V2 PASS-100 category and total scores use half-point increments. Promotion application requires an explicit durable `--log`; an `apply_started` record is flushed before staging and swapping the skill.
