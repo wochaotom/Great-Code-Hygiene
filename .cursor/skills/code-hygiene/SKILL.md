@@ -52,6 +52,7 @@ Hygiene progress:
   feedback loop before fixing, or state why no loop is possible.
 - Prefer a focused test, CLI/script harness, UI automation, replayed fixture,
   captured trace, reduced example, or exact failing command over inspection.
+- Prefer characterization tests or golden traces when behavior is unclear.
 - If no loop is possible, state what was tried and what artifact, access, or
   environment is missing.
 - Keep the first loop narrow. Broaden only after the narrow loop explains the
@@ -82,6 +83,8 @@ Hygiene progress:
   cleanup, concurrency, migration rollback, and compatibility when relevant.
 - Avoid replacing one silent failure with another. Error paths need observable,
   useful behavior.
+- Prefer framework-supported safe APIs over custom parsing or hand-rolled
+  security controls.
 - Add regression checks for the vulnerable path and at least one safe control
   when feasible.
 - For config/default/precedence changes, test the intended winning source plus
@@ -108,9 +111,11 @@ Hygiene progress:
 
 ### 6. Report
 
-For reviews, lead with findings ordered by severity. Include file/line evidence
-when available, and distinguish confirmed bugs from plausible risks. If no issues are
-found, say so and name any test gaps or residual risk.
+For reviews, lead with findings ordered by severity. Each finding should name
+the behavior risk, affected path, evidence, and a practical fix direction.
+Include file/line evidence when available, and distinguish confirmed bugs from
+plausible risks. If no issues are found, say so and name any test gaps or
+residual risk.
 
 For implementation work, every report states:
 
