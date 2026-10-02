@@ -409,6 +409,38 @@ session, and `context: fork` runs it as a separate subagent. Neither is set
 here: `code-hygiene` works inside the current conversation, and the checks above
 show it working on each model family.
 
+### Skill Comparison on PASS-100
+
+On 2026-10-02, all ten fixtures ran through Claude Code on Claude Haiku, Sonnet,
+and Opus, once with no hygiene plugin and once with `/code-hygiene:code-hygiene`
+invoked. All 60 runs fixed their fixture and left protected files unchanged, so
+an Opus judge then scored every run against PASS-100 with
+`tools/claude_model_check.py grade`. The judge saw the task, the agent's tool
+calls, the diff, the test result, and the final message, but not the model or
+setup.
+
+| Model | Without skill | With skill | Change | Capped at 72 for fixing without reproducing |
+| --- | --- | --- | --- | --- |
+| Haiku | 82.1 (76.9-87.2) | 90.7 (87.7-93.7) | +8.6 | 3/10 then 0/10 |
+| Sonnet | 83.1 (76.8-89.3) | 82.7 (76.7-88.7) | -0.4 | 4/10 then 4/10 |
+| Opus | 90.3 (88.0-92.5) | 94.3 (92.8-95.7) | +4.0 | 0/10 then 0/10 |
+
+Ranges are 95% confidence intervals from `analyze_runs.py`.
+
+- Haiku gained the most. The skill removed every run capped for fixing a bug
+  without first reproducing it, and test quality rose 2.65 of 15 points.
+- Opus gained 4 points, mostly in test quality, and its intervals do not
+  overlap.
+- Sonnet did not change. With the skill it still fixed 4 of 10 bugs without
+  first running the failing test, so the skill's reproduce-first rule is not
+  reaching Sonnet. That rule is the next thing to strengthen and re-measure.
+
+Limits: one run per model, setup, and fixture; the judge is itself a model and
+may favor Opus's style; and a final message that copies the skill's checklist
+shows the judge which setup it came from. `analyze_runs.py` marks the
+comparison diagnostic-only because there was no predeclared paired plan, so it
+is not promotion evidence under the trainer's gates.
+
 ### Promotion and Overtraining Control
 
 A candidate can be applied only through a v2 evidence bundle passed to

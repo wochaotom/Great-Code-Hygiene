@@ -316,10 +316,15 @@ def grade(args: argparse.Namespace) -> None:
     for (setup, model), path in files.items():
         if setup != "none" and ("none", model) in files:
             out = args.run / f"analysis-{setup}-vs-none-{model}.json"
-            subprocess.run([sys.executable, "-B", str(scripts / "analyze_runs.py"), "--results", str(path),
-                            "--baseline", str(files[("none", model)]), "--suite", str(suite), "--out", str(out)],
-                           check=True, capture_output=True, text=True)
-            print(f"Wrote {out}")
+            # analyze_runs.py exits non-zero when it detects a regression; that is a verdict, not a crash.
+            completed = subprocess.run([sys.executable, "-B", str(scripts / "analyze_runs.py"), "--results", str(path),
+                                        "--baseline", str(files[("none", model)]), "--suite", str(suite), "--out", str(out)],
+                                       capture_output=True, text=True)
+            if not out.is_file():
+                raise SystemExit(f"analyze_runs.py failed for {setup} {model}: {completed.stderr.strip()[-400:]}")
+            comparison = json.loads(out.read_text(encoding="utf-8"))["comparison"]
+            verdict = "regression" if comparison.get("regression_detected") else "no regression"
+            print(f"{setup} vs none, {model}: average delta {comparison['average_delta']:+.2f}, {verdict}. Wrote {out}")
     judge_cost = sum(result.get("judge_cost_usd") or 0 for result in grades)
     print(f"Graded {len(rows)} sessions with {args.judge}; reported judge cost ${judge_cost:.2f}.")
 

@@ -31,6 +31,8 @@ versions for plugin releases.
 - Add `tools/claude_model_check.py` to re-run the cross-model fixture and
   skill-trigger checks and to grade fixture runs against PASS-100 with a blind
   judge model.
+- Record a PASS-100 comparison of all ten fixtures with and without
+  `code-hygiene` on Claude Haiku, Sonnet, and Opus.
 
 ## 0.2.0 - 2026-07-14
 
