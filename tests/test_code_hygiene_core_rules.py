@@ -1,4 +1,4 @@
-"""The load-bearing rules of code-hygiene/SKILL.md, frozen by docs/specs/code-hygiene-token-diet.json."""
+"""The load-bearing rules of code-hygiene/SKILL.md, frozen by docs/specs/code-hygiene-token-diet-v2.json."""
 
 from __future__ import annotations
 

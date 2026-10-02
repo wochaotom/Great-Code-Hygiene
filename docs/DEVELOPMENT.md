@@ -48,7 +48,7 @@ The clean edition, `code-hygiene/SKILL.md`, is edited by hand. Copy it to
 `.agents/skills/code-hygiene/SKILL.md` and `.cursor/skills/code-hygiene/SKILL.md`
 after every change; `validate_package.py` fails when the three differ. Its
 load-bearing sentences and frontmatter are frozen by
-`docs/specs/code-hygiene-token-diet.json` and checked by
+`docs/specs/code-hygiene-token-diet-v2.json` and checked by
 `tests/test_code_hygiene_core_rules.py`.
 
 Run regeneration and validation after editing the trainer:

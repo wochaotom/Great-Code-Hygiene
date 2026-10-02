@@ -1,8 +1,7 @@
 # Spec: Code Hygiene Token Diet, Second Attempt (v2)
 
-Status: revised after review R1′. Thresholds were frozen before any comparison
-data; the only v2 data so far is a smoke session and the calibration guard on
-the original skill. Owner: maintainers.
+Status: complete; all criteria met (see Results). Thresholds were frozen before
+any comparison data. Owner: maintainers.
 Machine-readable thresholds:
 [`code-hygiene-token-diet-v2.json`](code-hygiene-token-diet-v2.json). The first
 attempt and its evidence: [`code-hygiene-token-diet.md`](code-hygiene-token-diet.md)
@@ -286,6 +285,14 @@ The holdout is not pristine: v1's holdout results shaped this design.
 | --- | --- | --- | --- | --- |
 | A-1 | Smoke test | major | A fresh `CLAUDE_CONFIG_DIR` removes only one user skill, while the platform's 28 skills and 3 built-in plugins remain. Its cold first turn missed the prompt cache, at twice v1's cost for the same Haiku fixture. | Amended before any comparison data. Both arms use the standard environment, and init fingerprints must match. |
 | M-2′ | Post-loop | minor | The implementer read the loop result before the confirmation guard. "If no issues are found, say so and name any test gaps or residual risk." left with Task Modes and has no other equivalent. | Restored verbatim before the confirmation guard, adding no new words. Size 6,514 to 6,586 bytes, 27.4 percent below the original. The confirmation guard passed at 7 of 12, and the final comparison runs on this text. |
+| R2′-1 | R2′ | blocking | The CHANGELOG entry still described v1 (27.9 percent, M1, criteria missed). | Fixed: the entry describes v2. A fresh reviewer confirmed the fix (R2′-C). |
+| R2′-2 | R2′ | minor | DEVELOPMENT.md, the core-rule test docstring, and power-users still pointed to v1. | Fixed: all three point to the v2 spec; power-users covers both attempts. |
+| R2′-3 | R2′ | minor | Some instructions were dropped without a full equivalent, including the Feedback Loop bullet rewrite. | Recorded in Results; a follow-up candidate for restoration if Sonnet's reproduce-first stays low. |
+| R2′-4 | R2′ | minor | Iterations 3 and 4 each bundled two edits. | Recorded. Each step passed its guard, and the confirmation guard and final comparison judged the final text; no criterion depends on step granularity. |
+| R2′-5 | R2′ | minor | 5 of 80 judge inputs leaked the run directory name through a scratchpad path. | Recorded; the pair deltas are small and split both ways. Follow-up: opaque run names and scrubbing dash-encoded paths. |
+| R2′-6 | R2′ | minor | The judge applies the 72 cap inconsistently, in both directions and without arm bias. | Recorded. Follow-up: derive the cap from the strict metric. |
+| R2′-7 | R2′ | minor | `compare` does not itself refuse unpaired rows, unequal fingerprints, or incomplete sessions. | None occurred here (40/40 pairs, equal fingerprints, 0 incomplete); checked by R2′. Follow-up: enforce them in `compare`. |
+| R2′-8 | R2′ | nit | The `--from-grades` rebuild left no log. | Recorded; R2′ confirmed that `grades.json` predates the rebuild and the rebuilt files carry the same totals. |
 | R1′-1 | R1′ | blocking | LB10 was frozen sentence by sentence, so the loop could reshape the report. | Fixed: LB10 is one contiguous block. |
 | R1′-2 | R1′ | major | Instructions that carry PASS-100 categories were still unprotected; the attribution was wrong. | Fixed: LB29 to LB38 frozen (all 11 sentences R1′ listed), attribution corrected. |
 | R1′-3 | R1′ | major | The worst case overran the budget. | Fixed: driver 2 USD, loop guard stop at a 25.50 USD ledger total, reserves listed. |
@@ -301,7 +308,8 @@ The holdout is not pristine: v1's holdout results shaped this design.
 
 ## Results
 
-Pending AC7 (CI) and AC8 (review R2′). AC1 to AC6 are met.
+All criteria are met. AC8 was met once R2′'s only blocking finding, a stale
+CHANGELOG entry, was fixed and a fresh reviewer confirmed the fix.
 
 ### What changed
 
@@ -360,8 +368,8 @@ concurrently at 15:25 UTC and graded by the blind Opus judge.
 | AC4 | met | Holdout +1.3. |
 | AC5 | met | 40 against 40. |
 | AC6 | met | 21 against 24 (slack 5); Sonnet 4 against 7 (slack 4). |
-| AC7 | pending | Unit suite, package validation, mirror and candidate-copy equality, and fingerprints pass locally; CI pending. |
-| AC8 | pending | Review R2′. |
+| AC7 | met | Unit suite, package validation, mirror and candidate-copy equality, and identical init fingerprints per model. CI passes on Ubuntu, Windows, and macOS. |
+| AC8 | met | R2′ confirmed every AC verdict and found one blocking finding (R2′-1, documentation only). It was fixed and the fix confirmed (R2′-C). |
 
 ### Notes
 
@@ -374,6 +382,23 @@ concurrently at 15:25 UTC and graded by the blind Opus judge.
 - **Cost.** Session cost fell 2 percent, close to the expected 1 to 2 percent,
   and cache writes fell 5 percent. Final reports grew 11 percent and output
   tokens 8 percent, with the same report list in both arms.
+- **Text lost without a full equivalent.** R2′ found these partial losses, none
+  of them frozen:
+  - iteration 3 replaced the Feedback Loop step's "loop that reproduces or
+    observes the symptom" bullet with LB1, so "reproduce" survives in the
+    checklist (LB3) and "Do not patch symptoms from inspection alone" (LB19);
+  - "Treat security as design, not cleanup";
+  - "Verify the original symptom first";
+  - deployment-dependent residual risk;
+  - "Inspect the diff before judging";
+  - "Preserve behavior before improving shape";
+  - LB6's exception for tasks that own dependency updates.
+
+  If Sonnet's reproduce-first stays low, the reproduce/observe wording is the
+  first thing to restore, with a new comparison.
+- **Report length.** Candidate Opus copied the progress checklist into its final
+  message in 6 of 10 sessions, against 1 of 10 for the original. That is one
+  visible part of the 11 percent report growth.
 - **Spend.** The ledger stands at 41.23 USD of 50:
 
   | Item | Cost |

@@ -443,50 +443,67 @@ is not promotion evidence under the trainer's gates.
 
 ### Token Reduction Experiment
 
-[`docs/specs/code-hygiene-token-diet.md`](specs/code-hygiene-token-diet.md)
-records a spec-driven attempt to make `code-hygiene` cheaper without making it
-worse. It froze its acceptance criteria and load-bearing sentences before any
-data. An independent agent reviewed the spec before any work started.
+Two spec-driven attempts tried to make `code-hygiene` cheaper without making it
+worse. Each froze its acceptance criteria and load-bearing sentences before any
+data, had an independent agent review the spec before work and the evidence
+after, and shrank the text with an
+[autoresearch](https://github.com/uditgoenka/autoresearch) loop under a
+behavioral guard.
 
-The text was shrunk two ways:
+- **v1** ([`specs/code-hygiene-token-diet.md`](specs/code-hygiene-token-diet.md))
+  also scaled the report to the size of the change. It cut 27.9 percent of the
+  text but was not merged. Cost per session barely moved, and Sonnet's score
+  fell 5.4 points. Review traced most of that to measurement:
+  - the report change shifted what the judge saw;
+  - reproduce-first counted test runs that ran zero tests.
+- **v2** ([`specs/code-hygiene-token-diet-v2.md`](specs/code-hygiene-token-diet-v2.md))
+  fixed those problems:
+  - it kept the report list unchanged;
+  - it counted a test only when its output showed a test ran;
+  - it froze 38 rules;
+  - it ran Sonnet twice per fixture.
 
-- by hand, with M1, which scales the report to the size of the change;
-- by an [autoresearch](https://github.com/uditgoenka/autoresearch) loop that
-  ran under a behavioral guard.
+  It cut 27.4 percent of the text. Each session loads about 630 (Haiku) to 890
+  (Sonnet, Opus) fewer tokens at its first turn. Every criterion was met:
+  - pooled PASS-100 -0.3 (Haiku +0.2, Sonnet -1.6, Opus +0.6);
+  - holdout +1.3;
+  - 40 of 40 resolved in both arms;
+  - cost ratio 0.98.
 
-The result was 27.9 percent fewer normalized body bytes. It was **not merged**,
-for two reasons:
+  The v2 text is the current `code-hygiene/SKILL.md`.
 
-- Session cost fell only 1.2 percent. Reports grew rather than shrinking, and
-  session cost is dominated by the work itself.
-- Sonnet's PASS-100 score fell 5.4 points, past the -4 limit, while pooled
-  quality held (-0.9).
+Sonnet's strict reproduce-first count fell from 7 to 4 of 20, inside the
+predeclared slack. It is the signal to watch in later changes. Each spec's
+Results section has the full numbers.
 
-The Sonnet gap is within the original skill's own run-to-run spread, so ten
-pairs cannot settle it. The spec's Results section has the full numbers and a
-diagnosis.
-
-The tooling from that effort is reusable:
+The tooling from these efforts is reusable:
 
 ```bash
 python tools/claude_model_check.py size code-hygiene/SKILL.md
 python tools/claude_model_check.py metrics --run ../hygiene-pass100
-python tools/claude_model_check.py guard --config docs/specs/code-hygiene-token-diet.json --base HEAD --ledger ../ledger.jsonl --budget-usd 20
+python tools/claude_model_check.py guard --config docs/specs/code-hygiene-token-diet-v2.json --base HEAD --ledger ../ledger.jsonl --budget-usd 20
 python tools/claude_model_check.py fixtures --setups invoked --skill-file ../original-SKILL.md --out ../arm-original --ledger ../ledger.jsonl --budget-usd 20
-python tools/claude_model_check.py compare --config docs/specs/code-hygiene-token-diet.json --original ../arm-original --candidate ../arm-candidate
+python tools/claude_model_check.py compare --config docs/specs/code-hygiene-token-diet-v2.json --original ../arm-original --candidate ../arm-candidate
 ```
 
 - `size` prints the normalized body size: the bytes after the frontmatter,
   whitespace collapsed.
-- `metrics` recomputes reproduced-first, test runs, and token usage from a run's
-  logs.
+- `metrics` recomputes reproduced-first and test runs (strict and loose), token
+  usage, first-turn tokens, and an init fingerprint of the session environment
+  from a run's logs.
 - `guard` runs model-free checks first: the frontmatter hash, the change scope,
   the step size, the frozen sentences, and new vocabulary. It then runs a
   two-stage reproduce-first check on the train fixtures. Its exit codes are
   0 pass, 1 behavioral fail, 2 static fail, 3 budget, and 4 infrastructure.
-- `compare` pairs two graded runs and evaluates the spec's criteria.
+- `compare` pairs graded runs, which may span several directories per arm, and
+  evaluates the spec's criteria. Pooled figures are the mean of the per-model
+  means.
+- `grade --from-grades` rebuilds the result files from a run's saved grades
+  without new judge calls.
 - `--ledger` and `--budget-usd` record every session's cost and refuse work past
   the cap.
+- `--clean-config` gives sessions an empty `CLAUDE_CONFIG_DIR`. It isolates only
+  user-level config, and it defeats prompt caching.
 
 ### Promotion and Overtraining Control
 
