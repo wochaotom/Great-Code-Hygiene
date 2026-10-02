@@ -1,5 +1,6 @@
 {
   "skill": "code-hygiene/SKILL.md",
+  "original_commit": "26d292dcfe2b1accb6fd0821434313eb6f7da382",
   "frontmatter_sha256": "cd17072ee0fe4140cdf49f5892c3241c320a4c94ca9df87f465ab1dce67ab610",
   "baseline_size": 9070,
   "fixtures": {
@@ -29,9 +30,9 @@
       "code-hygiene/SKILL.md"
     ],
     "min_step_bytes": 32,
-    "reproduced_first_pass_at": 6,
-    "reproduced_first_fail_at": 4,
-    "second_stage_pass_total": 12,
+    "reproduced_first_pass_at": 7,
+    "reproduced_first_fail_at": 5,
+    "second_stage_pass_total": 14,
     "max_unresolved_per_stage": 1,
     "max_new_words": 5
   },

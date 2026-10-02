@@ -38,11 +38,16 @@ about 5 to 7 percent of session cost. Larger savings would most likely come from
 less work. The criteria below therefore pair a cost target with a floor on test
 runs.
 
-Mechanical signal used throughout: a session "reproduced first" when it ran a
-test command before its first file change. Baseline across all ten fixtures:
-1/10 for every model without the skill; with it Haiku 7/10, Sonnet 5/10, Opus
-10/10. On the six train fixtures: Haiku 4/6, Sonnet 3/6. Runs that reproduced
-first averaged 89.2 PASS-100 points versus 85.7.
+Mechanical signal used throughout: a session "reproduced first" when a test ran
+before the first file change (defined under Metrics). Baseline across all ten
+fixtures, measured by `tools/claude_model_check.py metrics` on the stored logs:
+
+- without the skill: 1/10 for every model;
+- with it: Haiku 8/10, Sonnet 5/10, Opus 9/10;
+- with it, on the six train fixtures: Haiku 5/6, Sonnet 3/6.
+
+Runs that reproduced first averaged 89.3 PASS-100 points; the rest averaged
+85.6.
 
 ## Goals and Non-Goals
 
@@ -79,8 +84,10 @@ Non-goals:
   - A cost ratio is the ratio of pooled means: the sum over the candidate's
     sessions divided by the sum over the original's.
 - **Test runs:** the number of test commands in a session.
-- **Reproduced first:** a test command was run before the first file change
-  inside the target.
+- **Reproduced first:** a tool call that ran a test command came before the
+  first tool call that changed a file inside the target.
+  - A call that runs a test and changes a file does not count, because the code
+    changed before the agent saw the result.
   - A test command is a shell segment whose first word is `pytest`, or that
     starts with `npm test`, `node --test` or `<python> -m pytest|unittest`.
     Leading variable assignments and `cd` are skipped.
@@ -90,7 +97,10 @@ Non-goals:
     - segments starting with `sed -i`, `perl -i`, `cp`, `mv`, `rm`, `patch`,
       `git apply`, `git checkout` or `tee`;
     - any `>` or `>>` redirection to a file path that is not `/dev/null`,
-      descriptor duplication such as `2>&1` excluded.
+      descriptor duplication such as `2>&1` excluded;
+    - inline script writes (`.write(`, `.write_text(`, `writeFileSync(`,
+      `shutil.copy` or `shutil.move` anywhere in the command), since agents
+      often patch files with `python - <<EOF`.
 - **Quality:** PASS-100 total from the blind Opus judge in
   `tools/claude_model_check.py grade`.
   - Each session is judged on its own, never side by side.
@@ -186,22 +196,22 @@ Loop engineering uses the autoresearch classic loop
      (12 sessions, about 1.10 USD), scored on resolved sessions and the
      reproduced-first count:
      - Reject when 2 or more sessions are unresolved.
-     - Pass when the reproduced-first count is 6 or more.
-     - Fail when it is 4 or less.
-     - At exactly 5, run a second stage of 12 more sessions. Pass when the total
-       is at least 12 of 24 and at most 1 more session is unresolved.
+     - Pass when the reproduced-first count is 7 or more.
+     - Fail when it is 5 or less.
+     - At exactly 6, run a second stage of 12 more sessions. Pass when the total
+       is at least 14 of 24 and at most 1 more session is unresolved.
      - A session that ends in an infrastructure error is retried once.
-- Error rates, from the binomial model with train rates Haiku 4/6 and Sonnet
+- Error rates, from the binomial model with train rates Haiku 5/6 and Sonnet
   3/6:
 
   | Candidate | Chance of passing |
   | --- | --- |
-  | Unchanged skill | 89% |
+  | Unchanged skill | 91% |
   | Reproduced-first down 2 of 12 | 42% |
   | Reproduced-first down 3 of 12 | 19% |
-  | Rates halved | 11% |
+  | Rates halved | 6% |
 
-  The expected cost is 1.12 single runs. The baseline resolved 12/12 on train.
+  The expected cost is 1.11 single runs. The baseline resolved 12/12 on train.
   At a 2 percent unresolved rate per session, the unresolved rule rejects an
   unchanged skill about 2 percent of the time.
 - Calibration: the original skill and the M1 base must each pass the guard
@@ -288,7 +298,7 @@ Limits stated up front:
 
 | ID | Review | Severity | Finding | Disposition |
 | --- | --- | --- | --- | --- |
-| R1-1 | R1 | blocking | `max(4, min(live, 7) - 3)` is always 4; a halved skill passes 60 to 80 percent of the time. | Fixed. Two-stage guard (pass at 6 or more, fail at 4 or less, second stage at 5 needs 12 of 24). Unchanged passes 89 percent; halved 11 percent. |
+| R1-1 | R1 | blocking | `max(4, min(live, 7) - 3)` is always 4; a halved skill passes 60 to 80 percent of the time. | Fixed. Two-stage guard; thresholds as corrected in M-1. Unchanged passes 91 percent; halved 6 percent. |
 | R1-2 | R1 | blocking | PASS-100-relevant rules unprotected. | Fixed: LB16 to LB21 added; edge cases joined LB7; confirmed-versus-plausible joined LB11. |
 | R1-3 | R1 | major | LB10 "always" comes from M1 and omits the feedback loop; LB12 dropped "moves". | Fixed: LB10 names the loop field and the post-M1 scope; LB12 sentence includes moves. |
 | R1-4 | R1 | major | Anchor phrases can be hollowed; added hints are unchecked. | Fixed: anchors are verbatim sentences with qualifiers; new-word static check; R2 reviews meaning on the full diff. A per-step model review is rejected on cost. |
@@ -299,6 +309,7 @@ Limits stated up front:
 | R1-9 | R1 | major | Missing stops and reserves. | Fixed: target-size stop, behavioral-rejection stop, time reserve, upper-bound budget reserve, failed step-back means no merge. |
 | R1-10 | R1 | minor | Ambiguous definitions. | Fixed in Metrics, Loop Rules, and AC3. |
 | R1-11 | R1 | minor | Size trim and hash input undefined; bytes are not tokens. | Fixed: both defined, hash recomputed; token usage reported; new-word check limits abbreviations. |
+| M-1 | Phase 2 | major | Implementing the metric showed two definition gaps. Script writes (`python - <<EOF`) went undetected, and a test plus a write in one call counted as reproducing. | Fixed before any loop data. The definition counts per call and detects script writes. The tool reproduces the earlier hand counts within 1 per cell, and the train baseline is 8/12. The guard thresholds move up by one under the same rule (pass at 7 or more, fail at 5 or less, second stage needs 14 of 24), keeping the R1-1 error rates. |
 | R1-12 | R1 | minor | Text moved to new files; dispositions closing blockers; status; blinding. | Fixed: AC1 checks the folder; AC8 requires fixes; status updated; blinding limit stated in Metrics. |
 
 ## Results
