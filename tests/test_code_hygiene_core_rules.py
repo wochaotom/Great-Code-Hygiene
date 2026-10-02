@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 from claude_model_check import frontmatter_sha256, missing_rules, normalized_body, split_skill  # noqa: E402
 
-SPEC = json.loads((REPO_ROOT / "docs" / "specs" / "code-hygiene-token-diet.json").read_text(encoding="utf-8"))
+SPEC = json.loads((REPO_ROOT / "docs" / "specs" / "code-hygiene-token-diet-v2.json").read_text(encoding="utf-8"))
 SKILL = (REPO_ROOT / SPEC["skill"]).read_text(encoding="utf-8")
 
 

@@ -11,12 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from claude_model_check import (  # noqa: E402
     Ledger,
     behavior_verdict,
+    claude_env,
     compare_arms,
     grade_all,
     is_file_change,
     is_test_command,
     new_words,
     parse_judgement,
+    ran_tests,
     reproduced_first,
     scrub,
     session_summary,
@@ -33,7 +35,7 @@ TARGET = "/out/targets/run-abc"
 FRONT = "---\nname: demo\ndescription: Demo skill.\n---\n"
 GUARD = {"scope": ["code-hygiene/SKILL.md"], "min_step_bytes": 32, "max_new_words": 2, "reproduced_first_pass_at": 6,
          "reproduced_first_fail_at": 4, "second_stage_pass_total": 12, "max_unresolved_per_stage": 1}
-FINAL = {"max_cost_ratio": 0.95, "min_test_runs_ratio": 0.8, "min_pooled_delta": -1.5, "min_model_delta": -4.0,
+FINAL = {"max_cost_ratio": 1.05, "min_first_turn_token_saving": 400, "min_test_runs_ratio": 0.8, "min_pooled_delta": -1.5, "min_model_delta": -4.0,
          "min_bootstrap_lower": -4.5, "bootstrap_confidence": 0.9, "bootstrap_seed": 7, "bootstrap_resamples": 500,
          "min_holdout_delta": -3.0, "resolved_slack": 1, "reproduced_first_slack": 3, "sonnet_reproduced_first_slack": 2}
 
@@ -151,14 +153,74 @@ class SessionSignalTests(unittest.TestCase):
         self.assertTrue(summary["completed"])
         self.assertEqual({"input": 12, "cache_write": 1400, "cache_read": 21000, "output": 900}, summary["usage"])
         self.assertEqual(5, summary["final_report_chars"])
-        self.assertTrue(summary["reproduced_first"])
-        self.assertEqual(2, summary["test_runs"])
+        self.assertTrue(summary["reproduced_first_loose"])
+        self.assertFalse(summary["reproduced_first"])  # no tool output shows a test ran
+        self.assertEqual(2, summary["test_runs_loose"])
+        self.assertEqual(0, summary["test_runs"])
         self.assertEqual("", summary["error"])
 
     def test_session_summary_without_result_keeps_the_error(self) -> None:
         summary = session_summary(stream(bash("pytest")), "boom", TARGET)
         self.assertFalse(summary["completed"])
         self.assertEqual("boom", summary["error"])
+
+
+class StrictSignalTests(unittest.TestCase):
+    def test_ran_tests_needs_a_nonzero_summary(self) -> None:
+        for output in ("Ran 4 tests in 0.002s\n\nOK", "Ran 1 test in 0.001s\n\nFAILED (failures=1)", "3 passed in 0.10s",
+                       "1 failed, 2 passed in 0.2s", "collected 5 items", "# tests 3\n# pass 2", "\u2139 tests 4"):
+            with self.subTest(output=output):
+                self.assertTrue(ran_tests(output))
+        for output in ("Ran 0 tests in 0.000s\n\nOK", "/usr/bin/python: No module named pytest", "collected 0 items",
+                       "no tests ran in 0.01s", "ImportError: Start directory is not importable", "# tests 0", ""):
+            with self.subTest(output=output):
+                self.assertFalse(ran_tests(output))
+
+    def test_strict_reproduced_first_needs_tests_to_run(self) -> None:
+        empty = ("Bash", {"command": "python -m unittest"}, "Ran 0 tests in 0.000s\n\nOK")
+        real = ("Bash", {"command": "python -m unittest tests/test_x.py"}, "Ran 3 tests in 0.01s\n\nFAILED (failures=1)")
+        change = ("Edit", {"file_path": f"{TARGET}/app/x.py"}, "")
+        self.assertTrue(reproduced_first([empty, change], TARGET))
+        self.assertFalse(reproduced_first([empty, change], TARGET, strict=True))
+        self.assertTrue(reproduced_first([empty, real, change], TARGET, strict=True))
+        self.assertFalse(reproduced_first([change, real], TARGET, strict=True))
+        self.assertEqual(1, count_test_runs([empty, real, change], strict=True))
+        self.assertEqual(2, count_test_runs([empty, real, change]))
+
+    def test_session_summary_pairs_outputs_and_reads_first_turn_tokens(self) -> None:
+        events = [
+            {"type": "assistant", "message": {"usage": {"input_tokens": 3, "cache_creation_input_tokens": 1000,
+                                                         "cache_read_input_tokens": 20000, "output_tokens": 5},
+                                               "content": [{"type": "tool_use", "id": "t1", "name": "Bash",
+                                                            "input": {"command": "python -m unittest"}}]}},
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1",
+                                                      "content": [{"type": "text", "text": "Ran 2 tests in 0.1s\n\nFAILED"}]}]}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 1, "cache_creation_input_tokens": 50,
+                                                         "cache_read_input_tokens": 21000, "output_tokens": 9},
+                                               "content": [{"type": "tool_use", "id": "t2", "name": "Edit",
+                                                            "input": {"file_path": f"{TARGET}/app/x.py"}}]}},
+            {"type": "result", "subtype": "success", "num_turns": 3, "total_cost_usd": 0.05, "result": "ok", "usage": {}},
+        ]
+        summary = session_summary("\n".join(json.dumps(event) for event in events), "", TARGET)
+        self.assertTrue(summary["reproduced_first"])
+        self.assertTrue(summary["reproduced_first_loose"])
+        self.assertEqual(1, summary["test_runs"])
+        self.assertEqual(21003, summary["first_turn_tokens"])
+
+    def test_clean_env_uses_a_fresh_config_dir_and_keeps_auth(self) -> None:
+        import os
+        os.environ["HYGIENE_TEST_AUTH"] = "kept"
+        try:
+            env = claude_env(clean=True)
+            self.assertEqual("kept", env["HYGIENE_TEST_AUTH"])
+            config = Path(env["CLAUDE_CONFIG_DIR"])
+            self.assertTrue(config.is_dir())
+            self.assertEqual([], list(config.iterdir()))
+            self.assertIsNone(claude_env(clean=False))
+        finally:
+            os.environ.pop("HYGIENE_TEST_AUTH")
+            import shutil
+            shutil.rmtree(config, ignore_errors=True)
 
 
 class SkillTextTests(unittest.TestCase):
@@ -269,25 +331,42 @@ class StagingTests(unittest.TestCase):
 
 
 class CompareTests(unittest.TestCase):
-    def arm(self, offset: float, cost: float, first: bool = True) -> list[dict]:
+    def arm(self, offset: float, cost: float, first: bool = True, tokens: int = 30000, sonnet_offset: float | None = None,
+            rounds: dict | None = None) -> list[dict]:
         rows = []
         for model in ("haiku", "sonnet", "opus"):
-            for index in range(10):
-                rows.append({"model": model, "case": f"hyg-{index:03d}", "round": 1, "total": 90 + (index % 3) + offset,
-                             "fixed": True, "protected_files_ok": True, "reproduced_first": first, "cost_usd": cost,
-                             "test_runs": 3, "usage": {"input": 1, "cache_write": 100, "cache_read": 1000, "output": 50},
-                             "turns": 8, "final_report_chars": 900})
+            for round_no in range(1, (rounds or {}).get(model, 1) + 1):
+                for index in range(10):
+                    shift = sonnet_offset if model == "sonnet" and sonnet_offset is not None else offset
+                    rows.append({"model": model, "case": f"hyg-{index:03d}", "round": round_no, "total": 90 + (index % 3) + shift,
+                                 "fixed": True, "protected_files_ok": True, "reproduced_first": first, "cost_usd": cost,
+                                 "test_runs": 3, "usage": {"input": 1, "cache_write": 100, "cache_read": 1000, "output": 50},
+                                 "turns": 8, "final_report_chars": 900, "first_turn_tokens": tokens})
         return rows
 
     def test_neutral_cheaper_candidate_meets_criteria(self) -> None:
-        result = compare_arms(self.arm(0, 0.10), self.arm(-0.5, 0.09), FINAL, holdout=["hyg-001", "hyg-002"])
+        result = compare_arms(self.arm(0, 0.10), self.arm(-0.5, 0.09, tokens=29500), FINAL, holdout=["hyg-001", "hyg-002"])
         self.assertEqual(30, result["pairs"])
         self.assertAlmostEqual(-0.5, result["pooled_delta"])
         self.assertAlmostEqual(0.9, result["cost_ratio"])
+        self.assertEqual({"haiku": 500, "opus": 500, "sonnet": 500}, result["first_turn_token_saving"])
         self.assertTrue(all(result["criteria"].values()), result["criteria"])
 
+    def test_small_token_saving_fails_ac2(self) -> None:
+        result = compare_arms(self.arm(0, 0.10), self.arm(0, 0.10, tokens=29700), FINAL, holdout=["hyg-001"])
+        self.assertFalse(result["criteria"]["AC2"])
+
+    def test_models_weigh_equally_when_sonnet_has_more_rounds(self) -> None:
+        rounds = {"sonnet": 2}
+        result = compare_arms(self.arm(0, 0.10, rounds=rounds), self.arm(0, 0.10, tokens=29500, sonnet_offset=-3, rounds=rounds),
+                              FINAL, holdout=["hyg-001"])
+        self.assertEqual(40, result["pairs"])
+        self.assertAlmostEqual(-1.0, result["pooled_delta"])
+        self.assertAlmostEqual(-3.0, result["per_model_delta"]["sonnet"])
+        self.assertAlmostEqual(-1.0, result["bootstrap_interval"][0])
+
     def test_regressions_fail_their_criteria(self) -> None:
-        worse = self.arm(-5, 0.10, first=False)
+        worse = self.arm(-5, 0.12, first=False, tokens=29500)
         result = compare_arms(self.arm(0, 0.10), worse, FINAL, holdout=["hyg-001"])
         for criterion in ("AC2", "AC3", "AC4", "AC6"):
             self.assertFalse(result["criteria"][criterion], criterion)

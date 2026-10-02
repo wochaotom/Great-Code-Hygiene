@@ -38,6 +38,7 @@ import concurrent.futures
 import difflib
 import hashlib
 import json
+import os
 import random
 import re
 import shlex
@@ -84,6 +85,8 @@ FILE_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 PYTHON = re.compile(r"python(3(\.\d+)?)?(\.exe)?$")
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 WORD = re.compile(r"[a-z][a-z0-9]*")
+# A test runner's summary line showing that at least one test ran (unittest, pytest, node --test).
+RAN_TESTS = re.compile(r"\bRan [1-9]\d* tests?\b|\b[1-9]\d* (passed|failed)\b|\bcollected [1-9]\d* items?\b|^\s*[#ℹ]\s*tests [1-9]\d*", re.M)
 # File writes from inline scripts (python - <<EOF, python -c, node -e), which shell parsing cannot see.
 SCRIPT_WRITE = re.compile(r"(?<!stdout)(?<!stderr)\.write\(|\.write_(text|bytes)\(|(writeFileSync|appendFileSync)\(|shutil\.(copy|move)")
 
@@ -211,22 +214,37 @@ def is_file_change(name: str, tool_input: dict, target: str) -> bool:
     return False
 
 
-def reproduced_first(calls: list[tuple[str, dict]], target: str) -> bool:
+def ran_tests(output: str) -> bool:
+    """True when a test runner's output shows that at least one test ran."""
+    return bool(RAN_TESTS.search(output))
+
+
+def is_test_call(call: tuple, strict: bool) -> bool:
+    name, tool_input = call[0], call[1]
+    if name != "Bash" or not is_test_command(str(tool_input.get("command", ""))):
+        return False
+    return not strict or ran_tests(call[2] if len(call) > 2 else "")
+
+
+def reproduced_first(calls: list[tuple], target: str, strict: bool = False) -> bool:
     """True when a call that ran a test came before the first call that changed a file inside the target.
 
     A test and a write in the same call do not count: the agent changed code before it saw the result.
+    Calls are (name, input) or (name, input, output); strict also requires the output to show a test ran.
     """
-    for name, tool_input in calls:
-        if is_file_change(name, tool_input, target):
+    for call in calls:
+        if is_file_change(call[0], call[1], target):
             return False
-        if name == "Bash" and is_test_command(str(tool_input.get("command", ""))):
+        if is_test_call(call, strict):
             return True
     return False
 
 
-def count_test_runs(calls: list[tuple[str, dict]]) -> int:
-    return sum(is_test_segment(segment) for name, tool_input in calls if name == "Bash"
-               for segment in shell_segments(str(tool_input.get("command", ""))))
+def count_test_runs(calls: list[tuple], strict: bool = False) -> int:
+    if strict:
+        return sum(is_test_call(call, strict) for call in calls)
+    return sum(is_test_segment(segment) for call in calls if call[0] == "Bash"
+               for segment in shell_segments(str(call[1].get("command", ""))))
 
 
 def stream_events(stdout: str) -> list[dict]:
@@ -246,14 +264,44 @@ def tool_calls(events: list[dict]) -> list[tuple[str, dict]]:
             for block in event.get("message", {}).get("content", []) if block.get("type") == "tool_use"]
 
 
+def tool_outputs(events: list[dict]) -> dict[str, str]:
+    """Tool output text by tool_use_id."""
+    outputs = {}
+    for event in events:
+        content = event.get("message", {}).get("content") if event.get("type") == "user" else None
+        for block in content if isinstance(content, list) else []:
+            if block.get("type") == "tool_result":
+                value = block.get("content")
+                if isinstance(value, list):
+                    value = "\n".join(str(part.get("text", "")) for part in value if isinstance(part, dict))
+                outputs[str(block.get("tool_use_id"))] = str(value or "")
+    return outputs
+
+
+def tool_calls_with_output(events: list[dict]) -> list[tuple[str, dict, str]]:
+    outputs = tool_outputs(events)
+    return [(str(block.get("name")), block.get("input") or {}, outputs.get(str(block.get("id")), ""))
+            for event in events if event.get("type") == "assistant"
+            for block in event.get("message", {}).get("content", []) if block.get("type") == "tool_use"]
+
+
+def first_turn_tokens(events: list[dict]) -> int | None:
+    """Context size of the first model call: input plus cache-write plus cache-read tokens."""
+    for event in events:
+        usage = event.get("message", {}).get("usage") if event.get("type") == "assistant" else None
+        if usage:
+            return sum(int(usage.get(key) or 0) for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    return None
+
+
 def session_summary(stdout: str, error: str, target: str) -> dict:
     events = stream_events(stdout)
-    calls = tool_calls(events)
+    calls = tool_calls_with_output(events)
     result = next((event for event in reversed(events) if event.get("type") == "result"), {})
     usage = result.get("usage") or {}
     final_report = result.get("result") or ""
     return {
-        "skills": [str(tool_input.get("skill")) for name, tool_input in calls if name == "Skill"],
+        "skills": [str(tool_input.get("skill")) for name, tool_input, _ in calls if name == "Skill"],
         "completed": bool(result),
         "stop_reason": result.get("subtype"),
         "turns": result.get("num_turns"),
@@ -262,8 +310,11 @@ def session_summary(stdout: str, error: str, target: str) -> dict:
         "final_report_chars": len(final_report),
         "usage": {"input": usage.get("input_tokens", 0), "cache_write": usage.get("cache_creation_input_tokens", 0),
                   "cache_read": usage.get("cache_read_input_tokens", 0), "output": usage.get("output_tokens", 0)},
-        "reproduced_first": reproduced_first(calls, target),
-        "test_runs": count_test_runs(calls),
+        "reproduced_first": reproduced_first(calls, target, strict=True),
+        "reproduced_first_loose": reproduced_first(calls, target),
+        "test_runs": count_test_runs(calls, strict=True),
+        "test_runs_loose": count_test_runs(calls),
+        "first_turn_tokens": first_turn_tokens(events),
         "error": error if not result else "",
     }
 
@@ -302,14 +353,29 @@ def claude_command(model: str, max_turns: int, plugin_dirs: list[Path]) -> list[
     return command
 
 
-def run_claude(command: list[str], prompt: str, cwd: Path, log: Path, timeout: int) -> dict:
+def claude_env(clean: bool) -> dict[str, str] | None:
+    """Environment for a model session; clean gives it a fresh, empty Claude Code config folder.
+
+    Authentication in managed environments comes from environment variables, which are kept, while user
+    skills, plugins, and settings in the default config folder stay out of the session.
+    """
+    if not clean:
+        return None
+    return {**os.environ, "CLAUDE_CONFIG_DIR": tempfile.mkdtemp(prefix="hygiene-config-")}
+
+
+def run_claude(command: list[str], prompt: str, cwd: Path, log: Path, timeout: int, clean: bool = False) -> dict:
     """Run one session (prompt on stdin, so variadic flags cannot swallow it) and summarize it."""
+    env = claude_env(clean)
     try:
-        completed = subprocess.run(command, input=prompt, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        completed = subprocess.run(command, input=prompt, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
         stdout, error = completed.stdout, completed.stderr.strip()
     except subprocess.TimeoutExpired as exc:
         stdout, error = exc.stdout or "", f"timed out after {timeout}s"
         stdout = stdout.decode() if isinstance(stdout, bytes) else stdout
+    finally:
+        if env is not None:
+            shutil.rmtree(env["CLAUDE_CONFIG_DIR"], ignore_errors=True)
     log.write_text(stdout, encoding="utf-8")
     return session_summary(stdout, error, str(cwd))
 
@@ -334,7 +400,8 @@ def fixture_job(args: argparse.Namespace, model: str, fixture_id: str, setup: st
     target = args.out / "targets" / f"run-{uuid.uuid4().hex[:12]}"
     copy_fixture_repo(item, target, force=True)
     plugin_dirs = {"none": [], "invoked": [args.plugins["clean"]], "available": list(args.plugins.values())}[setup]
-    session = run_claude(claude_command(model, args.max_turns, plugin_dirs), prompt, target, target.parent / f"{target.name}.jsonl", args.timeout)
+    session = run_claude(claude_command(model, args.max_turns, plugin_dirs), prompt, target, target.parent / f"{target.name}.jsonl",
+                         args.timeout, getattr(args, "clean_config", False))
     score = run_fixture_target(item, target, args.timeout)
     return {"check": "fixtures", "setup": setup, "model": model, "case": fixture_id, "round": round_no,
             "target": str(target), "fixed": score["outcome"] == "pass", "test_outcome": score["outcome"],
@@ -348,7 +415,8 @@ def trigger_job(args: argparse.Namespace, model: str, request: str, setup: str, 
     copy_fixture_repo(find_fixture(TRAINER_ROOT / "fixtures", fixture_id), target, force=True)
     if setup == "claude-md":
         (target / "CLAUDE.md").write_text(CLAUDE_MD_LINE, encoding="utf-8")
-    session = run_claude(claude_command(model, args.max_turns, list(args.plugins.values())), prompt, target, target.parent / f"{target.name}.jsonl", args.timeout)
+    session = run_claude(claude_command(model, args.max_turns, list(args.plugins.values())), prompt, target, target.parent / f"{target.name}.jsonl",
+                         args.timeout, getattr(args, "clean_config", False))
     return {"check": "triggers", "setup": setup, "model": model, "case": request, "round": round_no,
             "loaded_skill": CLEAN_SKILL in session["skills"], **session}
 
@@ -449,12 +517,18 @@ def parse_judgement(text: str) -> dict:
     return {"categories": categories, "total": total, "rubric_flags": flags, "deductions": deductions}
 
 
-def grade_job(judge: str, row: dict, timeout: int, ledger: Ledger) -> dict:
+def grade_job(judge: str, row: dict, timeout: int, ledger: Ledger, clean: bool = False) -> dict:
     ledger.check(JUDGE_RESERVE_USD)
-    with tempfile.TemporaryDirectory(prefix="hygiene-judge-") as workdir:
-        command = [claude_executable(), "-p", "--model", judge, "--output-format", "json", "--max-turns", "1",
-                   "--disable-slash-commands"]
-        completed = subprocess.run(command, input=judge_prompt(row), cwd=workdir, capture_output=True, text=True, timeout=timeout)
+    env = claude_env(clean)
+    try:
+        with tempfile.TemporaryDirectory(prefix="hygiene-judge-") as workdir:
+            command = [claude_executable(), "-p", "--model", judge, "--output-format", "json", "--max-turns", "1",
+                       "--disable-slash-commands"]
+            completed = subprocess.run(command, input=judge_prompt(row), cwd=workdir, capture_output=True, text=True,
+                                       timeout=timeout, env=env)
+    finally:
+        if env is not None:
+            shutil.rmtree(env["CLAUDE_CONFIG_DIR"], ignore_errors=True)
     reply = json.loads(completed.stdout) if completed.stdout.strip().startswith("{") else {}
     ledger.add(f"judge {row['setup']} {row['model']} {row['case']} r{row['round']}", reply.get("total_cost_usd"))
     try:
@@ -480,7 +554,7 @@ def grade(args: argparse.Namespace) -> None:
     if not rows:
         raise SystemExit(f"no fixtures results in {args.run}")
     ledger = Ledger(args.ledger, args.budget_usd)
-    grades = grade_all(rows, lambda row: grade_job(args.judge, row, args.timeout, ledger), args.jobs, args.retries)
+    grades = grade_all(rows, lambda row: grade_job(args.judge, row, args.timeout, ledger, args.clean_config), args.jobs, args.retries)
     failed = [(row["setup"], row["model"], row["case"], result["error"]) for row, result in zip(rows, grades) if "error" in result]
     if failed:
         raise SystemExit("judge failures:\n" + "\n".join(map(str, failed)))
@@ -659,61 +733,82 @@ def behavior_verdict(first: list[dict], second: list[dict] | None, guard: dict) 
 
 
 def compare_arms(original: list[dict], candidate: list[dict], final: dict, holdout: list[str]) -> dict:
-    """Pair sessions by model, case, and round and evaluate the spec's run-based acceptance criteria."""
+    """Pair sessions by model, case, and round and evaluate the spec's run-based acceptance criteria.
+
+    Pooled figures are the mean of the per-model means, so a model run for more rounds does not outweigh the others.
+    """
     def key(row: dict) -> tuple:
         return (row["model"], row["case"], row["round"])
 
     before, after = {key(row): row for row in original}, {key(row): row for row in candidate}
     pairs = sorted(set(before) & set(after))
-    deltas = {pair: after[pair]["total"] - before[pair]["total"] for pair in pairs}
     models = sorted({pair[0] for pair in pairs})
-    per_model = {model: statistics.mean(delta for pair, delta in deltas.items() if pair[0] == model) for model in models}
-    held = [delta for pair, delta in deltas.items() if pair[1] in holdout]
+    by_model = {model: [pair for pair in pairs if pair[0] == model] for model in models}
+    deltas = {pair: after[pair]["total"] - before[pair]["total"] for pair in pairs}
+
+    def pooled(values: dict[str, float]) -> float:
+        return statistics.mean(values.values())
+
+    per_model = {model: statistics.mean(deltas[pair] for pair in by_model[model]) for model in models}
+    held = {model: [deltas[pair] for pair in by_model[model] if pair[1] in holdout] for model in models}
+    held = {model: statistics.mean(values) for model, values in held.items() if values}
 
     rng = random.Random(final["bootstrap_seed"])
-    strata = [[delta for pair, delta in deltas.items() if pair[0] == model] for model in models]
-    means = sorted(statistics.mean([rng.choice(stratum) for stratum in strata for _ in stratum])
+    strata = {model: [deltas[pair] for pair in by_model[model]] for model in models}
+    means = sorted(pooled({model: statistics.mean([rng.choice(stratum) for _ in stratum]) for model, stratum in strata.items()})
                    for _ in range(final["bootstrap_resamples"]))
     tail = (1 - final["bootstrap_confidence"]) / 2
     interval = (means[int(tail * len(means))], means[int((1 - tail) * len(means)) - 1])
 
-    old, new = [before[pair] for pair in pairs], [after[pair] for pair in pairs]
-
-    def total(rows: list[dict], field: str) -> float:
-        return sum(row.get(field) or 0 for row in rows)
+    def model_mean(arm: dict, model: str, field: str) -> float:
+        return statistics.mean(float(arm[pair].get(field) or 0) for pair in by_model[model])
 
     def ratio(field: str) -> float | None:
-        return total(new, field) / total(old, field) if total(old, field) else None
+        old = pooled({model: model_mean(before, model, field) for model in models})
+        new = pooled({model: model_mean(after, model, field) for model in models})
+        return new / old if old else None
 
-    def count(rows: list[dict], field: str, model: str | None = None) -> int:
-        return sum(bool(row[field]) for row in rows if model is None or row["model"] == model)
+    def count(arm: dict, field: str, model: str | None = None) -> int:
+        return sum(bool(arm[pair][field]) for pair in pairs if model is None or pair[0] == model)
 
-    for rows in (old, new):
-        for row in rows:
-            row["resolved"] = bool(row["fixed"] and row["protected_files_ok"])
-    components = {field: (sum(row["usage"][field] for row in new) / max(1, sum(row["usage"][field] for row in old)))
-                  for field in ("input", "cache_write", "cache_read", "output") if all("usage" in row for row in old + new)}
+    for arm in (before, after):
+        for pair in pairs:
+            arm[pair]["resolved"] = bool(arm[pair]["fixed"] and arm[pair]["protected_files_ok"])
+    components = {}
+    if all("usage" in arm[pair] for arm in (before, after) for pair in pairs):
+        for field in ("input", "cache_write", "cache_read", "output"):
+            old = pooled({model: statistics.mean(before[pair]["usage"][field] for pair in by_model[model]) for model in models})
+            new = pooled({model: statistics.mean(after[pair]["usage"][field] for pair in by_model[model]) for model in models})
+            components[field] = new / old if old else None
+    token_saving = None
+    if all(arm[pair].get("first_turn_tokens") is not None for arm in (before, after) for pair in pairs):
+        token_saving = {model: round(model_mean(before, model, "first_turn_tokens") - model_mean(after, model, "first_turn_tokens"), 1)
+                        for model in models}
     result = {
         "pairs": len(pairs),
+        "pairs_per_model": {model: len(by_model[model]) for model in models},
         "unpaired": sorted(set(before) ^ set(after)),
-        "pooled_delta": statistics.mean(deltas.values()),
+        "pooled_delta": pooled(per_model) if per_model else None,
         "per_model_delta": per_model,
         "bootstrap_interval": interval,
-        "holdout_pairs": len(held),
-        "holdout_delta": statistics.mean(held) if held else None,
+        "holdout_pairs": sum(1 for pair in pairs if pair[1] in holdout),
+        "holdout_delta": pooled(held) if held else None,
         "cost_ratio": ratio("cost_usd"),
         "test_runs_ratio": ratio("test_runs"),
         "turns_ratio": ratio("turns"),
         "final_report_chars_ratio": ratio("final_report_chars"),
         "token_ratios": components,
-        "resolved": {"original": count(old, "resolved"), "candidate": count(new, "resolved")},
-        "reproduced_first": {"original": count(old, "reproduced_first"), "candidate": count(new, "reproduced_first"),
-                             "sonnet_original": count(old, "reproduced_first", "sonnet"),
-                             "sonnet_candidate": count(new, "reproduced_first", "sonnet")},
+        "first_turn_token_saving": token_saving,
+        "resolved": {"original": count(before, "resolved"), "candidate": count(after, "resolved")},
+        "reproduced_first": {"original": count(before, "reproduced_first"), "candidate": count(after, "reproduced_first"),
+                             "sonnet_original": count(before, "reproduced_first", "sonnet"),
+                             "sonnet_candidate": count(after, "reproduced_first", "sonnet")},
     }
     first = result["reproduced_first"]
+    tokens_ok = ("min_first_turn_token_saving" not in final
+                 or (token_saving is not None and min(token_saving.values()) >= final["min_first_turn_token_saving"]))
     result["criteria"] = {
-        "AC2": result["cost_ratio"] is not None and result["cost_ratio"] <= final["max_cost_ratio"]
+        "AC2": tokens_ok and result["cost_ratio"] is not None and result["cost_ratio"] <= final["max_cost_ratio"]
                and (result["test_runs_ratio"] is None or result["test_runs_ratio"] >= final["min_test_runs_ratio"]),
         "AC3": result["pooled_delta"] >= final["min_pooled_delta"] and min(per_model.values()) >= final["min_model_delta"]
                and interval[0] >= final["min_bootstrap_lower"],
@@ -802,7 +897,8 @@ def guard(args: argparse.Namespace) -> None:
         skill_file = Path(temp) / "SKILL.md"
         skill_file.write_text(candidate, encoding="utf-8")
         session_args = argparse.Namespace(check="fixtures", out=run, max_turns=settings["max_turns"], timeout=args.timeout,
-                                          jobs=args.jobs, retries=1, plugins=stage_plugins(skill_file))
+                                          jobs=args.jobs, retries=1, plugins=stage_plugins(skill_file),
+                                          clean_config=bool(settings.get("clean_config")))
         (run / "targets").mkdir(parents=True)
         try:
             while verdict == "second-stage":
@@ -830,7 +926,8 @@ def guard(args: argparse.Namespace) -> None:
 
 def compare(args: argparse.Namespace) -> None:
     spec = json.loads(args.config.read_text(encoding="utf-8"))
-    original, candidate = load_rows(args.original), load_rows(args.candidate)
+    original = [row for run in args.original for row in load_rows(run)]
+    candidate = [row for run in args.candidate for row in load_rows(run)]
     ungraded = [key for rows in (original, candidate) for key in [(row["model"], row["case"]) for row in rows if row.get("total") is None]]
     if ungraded:
         raise SystemExit(f"rows without a grade: {ungraded}")
@@ -869,6 +966,7 @@ def main() -> None:
         sub.add_argument("--timeout", type=int, default=900, help="Seconds per session and per fixture test run.")
         sub.add_argument("--retries", type=int, default=0, help="Re-run a session that broke before finishing, up to this many times.")
         sub.add_argument("--skill-file", type=Path, help="SKILL.md text to stage as the code-hygiene skill instead of this checkout's.")
+        sub.add_argument("--clean-config", action="store_true", help="Give every session a fresh, empty CLAUDE_CONFIG_DIR.")
     sub = commands.add_parser("grade")
     budget(sub)
     sub.add_argument("--run", type=Path, required=True, help="Output directory of a finished fixtures run.")
@@ -876,6 +974,7 @@ def main() -> None:
     sub.add_argument("--jobs", type=int, default=4)
     sub.add_argument("--timeout", type=int, default=600)
     sub.add_argument("--retries", type=int, default=1, help="Ask the judge again when its reply breaks the rubric's rules.")
+    sub.add_argument("--clean-config", action="store_true", help="Give every judge call a fresh, empty CLAUDE_CONFIG_DIR.")
     sub = commands.add_parser("size")
     sub.add_argument("path", type=Path)
     sub = commands.add_parser("metrics")
@@ -892,8 +991,8 @@ def main() -> None:
     sub.add_argument("--timeout", type=int, default=900)
     sub = commands.add_parser("compare")
     sub.add_argument("--config", type=Path, required=True, help="Token-diet spec JSON.")
-    sub.add_argument("--original", type=Path, required=True, help="Graded fixtures run of the original skill.")
-    sub.add_argument("--candidate", type=Path, required=True, help="Graded fixtures run of the candidate skill.")
+    sub.add_argument("--original", type=Path, nargs="+", required=True, help="Graded fixtures runs of the original skill.")
+    sub.add_argument("--candidate", type=Path, nargs="+", required=True, help="Graded fixtures runs of the candidate skill.")
     sub.add_argument("--original-skill", type=Path, help="Original SKILL.md, for the size criterion.")
     sub.add_argument("--candidate-skill", type=Path, help="Candidate SKILL.md, for the size criterion.")
     sub.add_argument("--out", type=Path, help="Write the full comparison as JSON here.")
