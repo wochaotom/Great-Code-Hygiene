@@ -25,6 +25,7 @@ from claude_model_check import (  # noqa: E402
     pooled_mean,
     ran_tests,
     region_violations,
+    report_content,
     reproduced_first,
     result_files,
     scrub,
@@ -217,6 +218,7 @@ class StrictSignalTests(unittest.TestCase):
         self.assertTrue(summary["reproduced_first_loose"])
         self.assertEqual(1, summary["test_runs"])
         self.assertEqual(21003, summary["first_turn_tokens"])
+        self.assertEqual(2, summary["assistant_text_chars"])  # the result text "ok"; no other assistant text
 
     def test_init_fingerprint_tracks_the_session_environment(self) -> None:
         init = {"type": "system", "subtype": "init", "model": "claude-haiku", "claude_code_version": "2.1",
@@ -365,23 +367,31 @@ class BrevityTests(unittest.TestCase):
 
     def test_report_anchors(self) -> None:
         self.assertEqual([], missing_anchors(self.SKILL, self.ANCHORS))
+        frozen = ["For implementation work, report the feedback loop, commands run and their results, unrun checks, assumptions, and residual risk."]
+        self.assertEqual(["RA1", "RA2", "RA3"], missing_anchors(self.SKILL, self.ANCHORS, strip=frozen))
         self.assertEqual(["RA2"], missing_anchors(self.SKILL.replace("and their results", ""), self.ANCHORS))
         moved = self.SKILL.replace("unrun checks, ", "").replace("Read the code.", "Read the code; note unrun checks.")
         self.assertEqual(["RA3"], missing_anchors(moved, self.ANCHORS))
 
-    def rows(self, totals: list[float], docproc: float = 8.0, resolved: int = 12, first: int = 6) -> list[dict]:
-        return [{"total": total, "categories": {"documentation": docproc / 2, "agent_process": docproc / 2},
+    PATTERNS = {"C1": "feedback loop|reproduc", "C2": "\\d+ (?:tests?|passed)"}
+
+    def rows(self, totals: list[float], docproc: float = 8.0, resolved: int = 12, first: int = 6, report: str | None = None,
+             text: int = 2000) -> list[dict]:
+        report = "Reproduced the bug first; 4 passed." if report is None else report
+        return [{"model": "haiku" if index % 2 else "sonnet", "total": total,
+                 "categories": {"documentation": docproc / 2, "agent_process": docproc / 2},
                  "fixed": index < resolved, "protected_files_ok": True, "reproduced_first": index < first,
+                 "final_report": report, "final_report_chars": len(report), "assistant_text_chars": text,
                  "completed": True, "error": ""} for index, total in enumerate(totals)]
 
     def test_brevity_verdict(self) -> None:
-        guard = {"min_score_delta": -4.0, "max_capped_increase": 1, "min_doc_process_delta": -1.0, "max_unresolved": 1,
-                 "min_reproduced_first": 4}
+        guard = {"min_score_delta": -4.0, "min_doc_process_delta": -1.0, "max_unresolved": 1, "min_reproduced_first": 4,
+                 "report_content": self.PATTERNS, "report_content_slack": 3, "max_total_text_ratio": 1.05}
         base = self.rows([88.0] * 11 + [72.0])
-        self.assertEqual("pass", brevity_verdict(self.rows([86.0] * 10 + [72.0, 72.0]), base, guard)[0])
-        cases = {"score": self.rows([82.0] * 12), "capped": self.rows([95.0] * 9 + [72.0] * 3),
-                 "documentation": self.rows([88.0] * 12, docproc=6.5), "unresolved": self.rows([88.0] * 12, resolved=10),
-                 "reproduced": self.rows([88.0] * 12, first=3)}
+        self.assertEqual("pass", brevity_verdict(self.rows([87.0] * 9 + [72.0] * 3, text=1900), base, guard)[0])
+        cases = {"score": self.rows([82.0] * 12), "documentation": self.rows([88.0] * 12, docproc=6.5),
+                 "unresolved": self.rows([88.0] * 12, resolved=10), "reproduced": self.rows([88.0] * 12, first=3),
+                 "C1": self.rows([88.0] * 12, report="4 passed."), "total text": self.rows([88.0] * 12, text=2200)}
         for reason, candidate in cases.items():
             with self.subTest(reason=reason):
                 verdict, reasons = brevity_verdict(candidate, base, guard)
@@ -390,6 +400,10 @@ class BrevityTests(unittest.TestCase):
         broken = self.rows([88.0] * 12)
         broken[0] = {**broken[0], "completed": False, "error": "timed out"}
         self.assertEqual("infrastructure", brevity_verdict(broken, base, guard)[0])
+
+    def test_report_content(self) -> None:
+        self.assertEqual({"C1": True, "C2": False}, report_content("We REPRODUCED it; tests pass.", self.PATTERNS))
+        self.assertEqual({"C1": False, "C2": True}, report_content("Ran it: 12 passed", self.PATTERNS))
 
     def test_pooled_mean_weighs_models_equally(self) -> None:
         rows = [{"model": "haiku", "final_report_chars": 1000}] * 6 + [{"model": "sonnet", "final_report_chars": 2000}] * 2
@@ -477,26 +491,33 @@ class CompareTests(unittest.TestCase):
 
     def test_brevity_criteria(self) -> None:
         final = {**FINAL, "max_report_ratio": 0.7, "max_model_report_ratio": 0.85, "min_doc_process_delta": -0.5,
-                 "max_capped_increase": 2}
+                 "max_total_text_ratio": 0.9, "report_content": {"C1": "feedback loop"}, "report_content_slack": 5}
         original, shorter = self.arm(0, 0.10), self.arm(0, 0.10, tokens=29500)
         for row in original:
-            row.update(final_report_chars=1500, categories={"documentation": 4.0, "agent_process": 4.0})
+            row.update(final_report_chars=1500, assistant_text_chars=3000, final_report="Feedback loop: ran it.",
+                       categories={"documentation": 4.0, "agent_process": 4.0})
         for row in shorter:
-            row.update(final_report_chars=900, categories={"documentation": 4.0, "agent_process": 3.8})
+            row.update(final_report_chars=900, assistant_text_chars=2400, final_report="Feedback loop: ran it.",
+                       categories={"documentation": 4.0, "agent_process": 3.8})
         result = compare_arms(original, shorter, final, holdout=["hyg-001"])
         self.assertAlmostEqual(0.6, result["report_ratio"])
         self.assertAlmostEqual(-0.2, result["doc_process_delta"])
-        self.assertTrue(result["criteria"]["report_length"] and result["criteria"]["doc_process"] and result["criteria"]["caps"])
+        self.assertTrue(result["criteria"]["report_length"] and result["criteria"]["doc_process"]
+                        and result["criteria"]["report_content"])
+        self.assertNotIn("caps", result["criteria"])
         for row in shorter:
             if row["model"] == "opus":
                 row["final_report_chars"] = 1400
             row["categories"] = {"documentation": 3.0, "agent_process": 3.0}
-        for row in shorter[:3]:
-            row["total"] = 70.0
+        for row in shorter[:6]:
+            row["final_report"] = "Done."
         result = compare_arms(original, shorter, final, holdout=["hyg-001"])
         self.assertFalse(result["criteria"]["report_length"])
         self.assertFalse(result["criteria"]["doc_process"])
-        self.assertFalse(result["criteria"]["caps"])
+        self.assertFalse(result["criteria"]["report_content"])
+        for row in shorter:
+            row.update(final_report_chars=900, assistant_text_chars=2900)
+        self.assertFalse(compare_arms(original, shorter, final, holdout=["hyg-001"])["criteria"]["report_length"])
 
     def test_unpaired_rows_are_reported(self) -> None:
         original = self.arm(0, 0.1)

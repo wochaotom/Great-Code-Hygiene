@@ -27,46 +27,10 @@
       "## Tool And Access Limits"
     ],
     [
-      "## Hygiene Workflow",
+      "Follow this loop on every code task.",
       "``` Hygiene progress:"
     ]
   ],
-  "report_anchors": {
-    "region": [
-      "### 6. Report",
-      "## Tool And Access Limits"
-    ],
-    "RA1": [
-      [
-        "feedback loop"
-      ]
-    ],
-    "RA2": [
-      [
-        "command",
-        "check"
-      ],
-      [
-        "result"
-      ]
-    ],
-    "RA3": [
-      [
-        "unrun",
-        "not run"
-      ]
-    ],
-    "RA4": [
-      [
-        "residual risk"
-      ]
-    ],
-    "RA5": [
-      [
-        "assumption"
-      ]
-    ]
-  },
   "measure": {
     "models": [
       "haiku",
@@ -84,17 +48,25 @@
     "min_step_bytes": 0,
     "max_new_words": 15,
     "min_score_delta": -4.0,
-    "max_capped_increase": 1,
     "min_doc_process_delta": -1.0,
     "max_unresolved": 1,
-    "min_reproduced_first": 4
+    "min_reproduced_first": 4,
+    "report_content": {
+      "C1_feedback_loop": "feedback loop|reproduc|failing test|fail(?:ed|s|ing)? (?:before|first)|before (?:the |my )?(?:fix|change|edit)|red[- ]green",
+      "C2_command_result": "\\b\\d+\\s*(?:/\\s*\\d+\\s*)?(?:tests?|passed|failed|passing)\\b|\\btests? (?:now )?(?:pass|passed|passing|fail|failed|green)\\b|\\bran \\d+|\\ball (?:\\d+ )?(?:tests|checks) pass",
+      "C3_not_run": "not run|unrun|skipp|didn.t run|did not run|not (?:executed|tested|verified|checked)|untested|no (?:other|further|additional|broader) (?:checks|tests)|none (?:skipped|omitted)",
+      "C4_risk": "risk|limitation|caveat|uncertain|assum|not covered|edge case"
+    },
+    "report_content_slack": 3,
+    "max_total_text_ratio": 1.1
   },
   "loop": {
     "target_reduction": 0.4,
-    "max_iterations": 5,
+    "max_iterations": 3,
     "driver_budget_usd": 1.5,
-    "ledger_stop_usd": 13,
-    "deadline_utc": "2026-10-02T22:45:00Z"
+    "ledger_stop_usd": 12,
+    "deadline_utc": "2026-10-02T22:45:00Z",
+    "min_keep_improvement": 0.1
   },
   "final": {
     "models": [
@@ -104,7 +76,7 @@
     ],
     "rounds": {
       "haiku": 1,
-      "sonnet": 1,
+      "sonnet": 2,
       "opus": 1
     },
     "max_turns": 40,
@@ -112,7 +84,6 @@
     "max_report_ratio": 0.7,
     "max_model_report_ratio": 0.85,
     "min_doc_process_delta": -0.5,
-    "max_capped_increase": 2,
     "max_cost_ratio": 1.05,
     "min_test_runs_ratio": 0.0,
     "min_pooled_delta": -1.5,
@@ -123,10 +94,18 @@
     "bootstrap_resamples": 10000,
     "min_holdout_delta": -3.0,
     "resolved_slack": 1,
-    "reproduced_first_slack": 3,
-    "sonnet_reproduced_first_slack": 3,
+    "reproduced_first_slack": 5,
+    "sonnet_reproduced_first_slack": 4,
     "graded_by_utc": "2026-10-02T23:15:00Z",
-    "decision_by_utc": "2026-10-02T23:45:00Z"
+    "decision_by_utc": "2026-10-02T23:45:00Z",
+    "report_content": {
+      "C1_feedback_loop": "feedback loop|reproduc|failing test|fail(?:ed|s|ing)? (?:before|first)|before (?:the |my )?(?:fix|change|edit)|red[- ]green",
+      "C2_command_result": "\\b\\d+\\s*(?:/\\s*\\d+\\s*)?(?:tests?|passed|failed|passing)\\b|\\btests? (?:now )?(?:pass|passed|passing|fail|failed|green)\\b|\\bran \\d+|\\ball (?:\\d+ )?(?:tests|checks) pass",
+      "C3_not_run": "not run|unrun|skipp|didn.t run|did not run|not (?:executed|tested|verified|checked)|untested|no (?:other|further|additional|broader) (?:checks|tests)|none (?:skipped|omitted)",
+      "C4_risk": "risk|limitation|caveat|uncertain|assum|not covered|edge case"
+    },
+    "report_content_slack": 5,
+    "max_total_text_ratio": 0.9
   },
   "load_bearing": {
     "LB1": [
@@ -245,6 +224,63 @@
     ],
     "LB39": [
       "If no issues are found, say so and name any test gaps or residual risk."
+    ],
+    "LB40": [
+      "Follow this loop on every code task."
     ]
+  },
+  "anchors": [
+    {
+      "region": [
+        "### 6. Report",
+        "## Tool And Access Limits"
+      ],
+      "RA1": [
+        [
+          "feedback loop"
+        ]
+      ],
+      "RA2": [
+        [
+          "command"
+        ],
+        [
+          "result"
+        ]
+      ],
+      "RA3": [
+        [
+          "unrun",
+          "not run"
+        ]
+      ],
+      "RA4": [
+        [
+          "residual risk"
+        ]
+      ],
+      "RA5": [
+        [
+          "assumption"
+        ]
+      ]
+    },
+    {
+      "region": [
+        "Follow this loop on every code task.",
+        "``` Hygiene progress:"
+      ],
+      "LA1": [
+        [
+          "checklist"
+        ]
+      ]
+    }
+  ],
+  "report_content": {
+    "C1_feedback_loop": "feedback loop|reproduc|failing test|fail(?:ed|s|ing)? (?:before|first)|before (?:the |my )?(?:fix|change|edit)|red[- ]green",
+    "C2_command_result": "\\b\\d+\\s*(?:/\\s*\\d+\\s*)?(?:tests?|passed|failed|passing)\\b|\\btests? (?:now )?(?:pass|passed|passing|fail|failed|green)\\b|\\bran \\d+|\\ball (?:\\d+ )?(?:tests|checks) pass",
+    "C3_not_run": "not run|unrun|skipp|didn.t run|did not run|not (?:executed|tested|verified|checked)|untested|no (?:other|further|additional|broader) (?:checks|tests)|none (?:skipped|omitted)",
+    "C4_risk": "risk|limitation|caveat|uncertain|assum|not covered|edge case"
   }
 }

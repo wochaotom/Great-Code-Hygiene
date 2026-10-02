@@ -179,8 +179,12 @@ def region_violations(candidate: str, base: str, regions: list[list[str]]) -> li
     return []
 
 
-def missing_anchors(text: str, anchors: dict) -> list[str]:
-    """Anchor ids whose phrase groups no longer all match inside the anchors' region (case-insensitive)."""
+def missing_anchors(text: str, anchors: dict, strip: list[str] | tuple = ()) -> list[str]:
+    """Anchor ids whose phrase groups no longer all match inside the anchors' region.
+
+    Matching is a case-insensitive substring search, after removing the `strip` sentences (frozen rules) so an anchor
+    cannot be satisfied by a sentence that is protected for another reason.
+    """
     body = normalized_body(text).lower()
     start, end = (marker.lower() for marker in anchors["region"])
     begin = body.find(start)
@@ -188,6 +192,8 @@ def missing_anchors(text: str, anchors: dict) -> list[str]:
     if begin < 0 or finish < 0:
         return ["region"]
     region = body[begin:finish]
+    for sentence in strip:
+        region = region.replace(" ".join(sentence.split()).lower(), " ")
     return [key for key, groups in anchors.items() if key != "region"
             and not all(any(phrase.lower() in region for phrase in group) for group in groups)]
 
@@ -358,6 +364,8 @@ def session_summary(stdout: str, error: str, target: str) -> dict:
     result = next((event for event in reversed(events) if event.get("type") == "result"), {})
     usage = result.get("usage") or {}
     final_report = result.get("result") or ""
+    texts = [str(block.get("text", "")) for event in events if event.get("type") == "assistant"
+             for block in event.get("message", {}).get("content", []) if block.get("type") == "text"]
     return {
         "skills": [str(tool_input.get("skill")) for name, tool_input, _ in calls if name == "Skill"],
         "completed": bool(result),
@@ -366,6 +374,8 @@ def session_summary(stdout: str, error: str, target: str) -> dict:
         "cost_usd": result.get("total_cost_usd"),
         "final_report": final_report,
         "final_report_chars": len(final_report),
+        # Everything the model wrote as text, so moving report content into earlier messages does not look shorter.
+        "assistant_text_chars": sum(map(len, texts)) + (0 if final_report in texts else len(final_report)),
         "usage": {"input": usage.get("input_tokens", 0), "cache_write": usage.get("cache_creation_input_tokens", 0),
                   "cache_read": usage.get("cache_read_input_tokens", 0), "output": usage.get("output_tokens", 0)},
         "reproduced_first": reproduced_first(calls, target, strict=True),
@@ -794,10 +804,11 @@ def static_guard(*, candidate: str, base: str, previous: str, original: str, cha
     missing = missing_rules(candidate, rules)
     if missing:
         failures.append(f"load-bearing rules missing or reworded: {', '.join(missing)}")
-    if anchors:
-        lost = missing_anchors(candidate, anchors)
+    frozen = [sentence for sentences in rules.values() for sentence in sentences]
+    for anchor_set in ([anchors] if isinstance(anchors, dict) else anchors or []):
+        lost = missing_anchors(candidate, anchor_set, strip=frozen)
         if lost:
-            failures.append(f"report anchors missing: {', '.join(lost)}")
+            failures.append(f"anchors missing: {', '.join(lost)}")
     added = new_words(normalized_body(candidate), normalized_body(original), normalized_body(base))
     if len(added) > guard["max_new_words"]:
         failures.append(f"new words {len(added)} > {guard['max_new_words']}: {', '.join(added)}")
@@ -831,6 +842,15 @@ def pooled_mean(rows: list[dict], field: str) -> float:
     return statistics.mean(statistics.mean(row[field] for row in rows if row["model"] == model) for model in models)
 
 
+def report_content(text: str, patterns: dict[str, str]) -> dict[str, bool]:
+    """Which required report items a final message states, by the spec's frozen case-insensitive patterns."""
+    return {item: bool(re.search(pattern, text or "", re.IGNORECASE)) for item, pattern in patterns.items()}
+
+
+def content_counts(rows: list[dict], patterns: dict[str, str]) -> dict[str, int]:
+    return {item: sum(report_content(row.get("final_report") or "", patterns)[item] for row in rows) for item in patterns}
+
+
 def doc_process(row: dict) -> float:
     categories = row.get("categories") or {}
     return float(categories.get("documentation", 0)) + float(categories.get("agent_process", 0))
@@ -844,15 +864,19 @@ def brevity_verdict(candidate: list[dict], base: list[dict], guard: dict) -> tup
     def mean(rows: list[dict], value) -> float:
         return statistics.mean(value(row) for row in rows)
 
-    def capped(rows: list[dict]) -> int:
-        return sum(row["total"] <= 72 for row in rows)
-
     reasons = []
     score = mean(candidate, lambda row: row["total"]) - mean(base, lambda row: row["total"])
     if score < guard["min_score_delta"]:
         reasons.append(f"score delta {score:+.2f} below {guard['min_score_delta']}")
-    if capped(candidate) > capped(base) + guard["max_capped_increase"]:
-        reasons.append(f"capped sessions {capped(candidate)} vs base {capped(base)}")
+    if "report_content" in guard:
+        have, had = content_counts(candidate, guard["report_content"]), content_counts(base, guard["report_content"])
+        for item in guard["report_content"]:
+            if have[item] < had[item] - guard["report_content_slack"]:
+                reasons.append(f"report content {item}: {have[item]} sessions vs base {had[item]}")
+    if "max_total_text_ratio" in guard:
+        text_ratio = pooled_mean(candidate, "assistant_text_chars") / pooled_mean(base, "assistant_text_chars")
+        if text_ratio > guard["max_total_text_ratio"]:
+            reasons.append(f"total text ratio {text_ratio:.2f} above {guard['max_total_text_ratio']}")
     process = mean(candidate, doc_process) - mean(base, doc_process)
     if process < guard["min_doc_process_delta"]:
         reasons.append(f"documentation+process delta {process:+.2f} below {guard['min_doc_process_delta']}")
@@ -960,8 +984,18 @@ def compare_arms(original: list[dict], candidate: list[dict], final: dict, holdo
     }
     if "max_report_ratio" in final:
         per_model = [value for value in result["report_ratio_per_model"].values() if value is not None]
+        result["total_text_ratio"] = ratio("assistant_text_chars")
         result["criteria"]["report_length"] = (result["report_ratio"] is not None and result["report_ratio"] <= final["max_report_ratio"]
-                                               and all(value <= final["max_model_report_ratio"] for value in per_model))
+                                               and all(value <= final["max_model_report_ratio"] for value in per_model)
+                                               and ("max_total_text_ratio" not in final or (result["total_text_ratio"] is not None
+                                                    and result["total_text_ratio"] <= final["max_total_text_ratio"])))
+    if "report_content" in final:
+        old_rows, new_rows = [before[pair] for pair in pairs], [after[pair] for pair in pairs]
+        result["report_content"] = {"original": content_counts(old_rows, final["report_content"]),
+                                    "candidate": content_counts(new_rows, final["report_content"])}
+        result["criteria"]["report_content"] = all(
+            result["report_content"]["candidate"][item] >= result["report_content"]["original"][item] - final["report_content_slack"]
+            for item in final["report_content"])
     if "min_doc_process_delta" in final:
         result["criteria"]["doc_process"] = ("doc_process_delta" in result
                                              and result["doc_process_delta"] >= final["min_doc_process_delta"])
@@ -1024,7 +1058,7 @@ def guard(args: argparse.Namespace) -> None:
     changed = [line for line in git("diff", "--name-only", args.base).splitlines() if line.strip()]
     failures = static_guard(candidate=candidate, base=base, previous=previous, original=original, changed_files=changed,
                             guard=settings, rules=spec["load_bearing"], frontmatter=spec["frontmatter_sha256"],
-                            regions=spec.get("editable_regions"), anchors=spec.get("report_anchors"))
+                            regions=spec.get("editable_regions"), anchors=spec.get("anchors"))
     print(f"size {skill_size(candidate)} (original {skill_size(original)}, base {skill_size(base)}, previous {skill_size(previous)})")
     added = new_words(normalized_body(candidate), normalized_body(original), normalized_body(base))
     print(f"new words: {', '.join(added) or 'none'}")
@@ -1151,7 +1185,7 @@ def compare(args: argparse.Namespace) -> None:
     result["init_fingerprints"] = {arm: {model: sorted({str(row.get("init_fingerprint")) for row in rows if row["model"] == model})
                                          for model in sorted({row["model"] for row in rows})}
                                    for arm, rows in (("original", original), ("candidate", candidate))}
-    if args.original_skill and args.candidate_skill:
+    if args.original_skill and args.candidate_skill and "min_size_reduction" in spec["final"]:
         before, after = args.original_skill.read_text(encoding="utf-8"), args.candidate_skill.read_text(encoding="utf-8")
         reduction = 1 - skill_size(after) / skill_size(before)
         result["size"] = {"original": skill_size(before), "candidate": skill_size(after), "reduction": reduction}

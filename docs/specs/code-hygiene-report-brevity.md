@@ -1,7 +1,7 @@
 # Spec: Code Hygiene Report Brevity
 
-Status: draft for review R1; thresholds frozen before any data. Owner:
-maintainers.
+Status: revised after review R1. Thresholds are frozen; the only data so far is
+the calibration run of the current text (B-1). Owner: maintainers.
 Machine-readable thresholds:
 [`code-hygiene-report-brevity.json`](code-hygiene-report-brevity.json). Earlier
 efforts on the same skill: [`code-hygiene-token-diet.md`](code-hygiene-token-diet.md)
@@ -31,15 +31,17 @@ With `code-hygiene` invoked, final reports average:
 | Opus | 2,136 |
 
 These are from the v2 final comparison of the current text. Reports grew 11
-percent in v2, and Opus copied the progress checklist into 6 of 10 final
-messages.
+percent in v2. The progress checklist is pasted into most final messages: Haiku
+8 or 9 of 10, Opus 6 of 10.
 
-The goal is shorter reports with the same quality. The value is readability;
-output tokens for the report are only about 1 to 2 percent of session cost.
+The goal is shorter reports with the same quality and the same required
+content. The value is readability; report tokens are about 1 to 2 percent of
+session cost.
 
-v1 showed the risk: report wording changes what the blind judge sees. A more
-prominent Feedback Loop field raised the number of sessions capped at 72. So
-every loop step is checked by the judge, not only the final candidate.
+v1 showed the risk: report wording changes what the blind judge sees. The judge
+partly rewards reports that leave out uncomfortable facts, such as "no failing
+test was run first". So this spec does not rely on judge scores alone. It
+checks the required content of every final message with frozen patterns.
 
 ## Scope of Change
 
@@ -48,45 +50,68 @@ JSON (`editable_regions`):
 
 - the `### 6. Report` section, from that heading up to `## Tool And Access
   Limits`;
-- the checklist lead-in sentence between `## Hygiene Workflow` and the
+- the checklist sentence after "Follow this loop on every code task." That
+  sentence is now frozen as LB40, and the region runs up to the
   `Hygiene progress:` block.
 
 The rest of the normalized body must stay byte-identical.
 
-Frozen rules and anchors:
+Frozen rules:
 
 - All v2 frozen sentences stay verbatim, except LB10 (the report list) and LB23
-  ("Report evidence, skipped checks, assumptions, and residual risk.").
-- The review sentences inside the Report section (LB11, LB28, LB31) stay frozen,
-  and LB39 now freezes "If no issues are found, say so and name any test gaps or
-  residual risk."
-- LB10 and LB23 become phrase anchors that must still appear inside the Report
-  region, so every implementation report keeps its required content:
+  (the evidence summary sentence). That includes the review sentences in the
+  Report section: LB11, LB28, LB31, and LB39 ("If no issues are found…").
+- LB40 is "Follow this loop on every code task."
 
-  | Anchor | Content | Required phrases |
-  | --- | --- | --- |
-  | RA1 | Feedback loop | "feedback loop" |
-  | RA2 | Commands or checks with results | "command" or "check", and "result" |
-  | RA3 | Checks not run | "unrun" or "not run" |
-  | RA4 | Residual risk | "residual risk" |
-  | RA5 | Assumptions | "assumption" |
+Anchors (`anchors` in the JSON):
 
+- Matching is a case-insensitive substring search inside the region, after
+  removing every frozen sentence, so a protected sentence cannot satisfy an
+  anchor.
+- The Report section must still ask for:
+  - the feedback loop (RA1);
+  - commands with results (RA2);
+  - checks not run (RA3);
+  - residual risk (RA4);
+  - assumptions (RA5).
+- The lead-in must still mention the checklist (LA1).
 - The conditional fields (Change, Correctness, Security/Data, Minimal Diff) may
   be condensed or dropped.
 - At most 15 words absent from the current text may be added; the guard lists
-  them for the reviewer.
+  them.
 
 ## Metrics
 
-- **Report length:** characters of the session's final message (`result` in the
-  stream). Pooled figures are the mean of the per-model means.
-- **Quality:** PASS-100 total from the blind Opus judge.
-- **Documentation and process:** the sum of the `documentation` (0 to 5) and
-  `agent_process` (0 to 5) categories.
-- **Capped:** sessions with a total of 72 or less (any cap).
-- **Resolved:** the fixture is fixed and its protected files are untouched.
-- **Strict reproduced first:** as defined in the v2 spec.
-- **Cost:** reported session cost.
+- **Report length:** characters of the session's final message. A session with
+  no final message is a failed session, not a short report.
+- **Total text:** characters of all assistant text in the session, the final
+  message included. This catches content moved into earlier messages.
+- **Report content:** four frozen, case-insensitive patterns
+  (`report_content`) tested on each final message:
+
+  | Item | Content |
+  | --- | --- |
+  | C1 | Feedback loop or reproduction |
+  | C2 | Command or test count with a result |
+  | C3 | Checks not run or skipped |
+  | C4 | Risk, limitation, or assumption |
+
+  On the 80 v2 final messages the rates were stable between the two arms of the
+  same report format:
+
+  | Model | C1 | C2 | C3 | C4 |
+  | --- | --- | --- | --- | --- |
+  | Haiku | 10/10 | 10/10 | 0–1/10 | 6–7/10 |
+  | Sonnet | 13–14/20 | 19/20 | 8–9/20 | 11–13/20 |
+  | Opus | 9–10/10 | 10/10 | 1–4/10 | 5–8/10 |
+
+- **Quality:** PASS-100 total from the blind Opus judge, and the
+  documentation-plus-process sum (`documentation` 0 to 5 plus `agent_process` 0
+  to 5).
+- **Capped:** sessions with a total of 72 or less. This is a diagnostic only:
+  for a wording change it moves with how honest the report is, not with quality.
+- **Other:** resolved and strict reproduced first as defined in the v2 spec; cost.
+- **Pooled figures:** the mean of the per-model means.
 
 ## Guard
 
@@ -94,19 +119,19 @@ Frozen rules and anchors:
 
 - It runs Haiku and Sonnet on the six train fixtures, one round (12 sessions),
   with the candidate staged and invoked explicitly.
-- The blind judge grades each session.
-- The run is cached by the text's hash, and the command prints the pooled
-  report length.
+- The blind judge grades each session. It grades one session first, so the
+  rubric is cached before the parallel calls.
+- The run is cached by the text's hash, and the command prints the pooled report
+  length.
 
-`guard --measured` reads that run, so the sessions are not repeated, and checks
-the following.
+`guard --measured` reads that run and checks the following.
 
 Static checks:
 
 - frontmatter hash unchanged;
 - only `code-hygiene/SKILL.md` changed;
 - no change outside the editable regions;
-- frozen sentences and report anchors present;
+- frozen sentences and anchors present;
 - at most 15 new words.
 
 Behavioral checks, against the calibration run of the current text:
@@ -114,31 +139,43 @@ Behavioral checks, against the calibration run of the current text:
 | Check | Pass condition |
 | --- | --- |
 | Mean PASS-100 | At least the base minus 4 |
-| Capped sessions | At most the base plus 1 |
 | Mean documentation-plus-process | At least the base minus 1 |
+| Each report-content item | Count at least the base minus 3 (of 12) |
+| Pooled total-text ratio | At most 1.10 |
 | Unresolved sessions | At most 1 |
 | Strict reproduced first | At least 4 of 12 |
 
-With a per-session score SD of about 8, the score check falsely rejects an
-unchanged text about 11 percent of the time.
+Calibration base: score 86.2; documentation-plus-process 7.96; content C1 8,
+C2 12, C3 4, C4 7; total text 1,707 characters; report 1,196 characters.
+
+An unchanged text fails at least one check about 20 percent of the time per
+step, mostly from the score check. The guard stops gross regressions. Smaller
+losses are left to the final comparison, which has more power.
 
 ## Loop Rules
 
 - The autoresearch classic loop runs on Opus with a driver budget of 1.50 USD,
   starting from tag `report-brevity-base`, which holds the current text.
-- Metric: report length, direction lower.
-- One change per iteration, inside the editable regions only. The driver is
-  told what makes reports long:
+- Metric: report length, direction lower. The driver keeps a change only if it
+  improves the metric by at least 10 percent. One measure of 12 sessions varies
+  by about 8 percent, so smaller gains are noise.
+- One change per iteration. The driver is told what makes reports long:
   - the eight-field list;
-  - copying the checklist into the final message;
+  - pasting the checklist into the final message;
   - restating fields that do not apply.
 - The loop stops at the first of these:
-  - a pooled report length 40 percent below calibration;
-  - 5 iterations;
+  - pooled report length 40 percent below calibration;
+  - 3 iterations;
   - 2 consecutive static rejections;
   - 3 consecutive behavioral rejections;
-  - ledger above 13 USD;
+  - ledger above 12 USD;
   - 22:45 UTC.
+- A fresh reviewer reads the kept diff and its new words before the final
+  comparison. A blocking finding there stops the effort.
+- There is no separate confirmation run; the final comparison is the
+  confirmation.
+- Opus is not measured in the loop. Its reports are the longest, so AC1's
+  per-model limit is the main risk.
 
 ## Acceptance Criteria and Decision
 
@@ -147,49 +184,54 @@ Final comparison:
 - Two arms: the current text (base, `37c920d`) and the candidate. Both are
   invoked explicitly from staged copies, with at most 40 turns and one retry for
   broken sessions.
-- All ten fixtures on Haiku, Sonnet, and Opus, one round each: 30 pairs and 60
-  sessions.
+- All ten fixtures: Haiku once, Sonnet twice, Opus once. That gives 40 pairs and
+  80 sessions.
 - The arms run concurrently and are graded by the blind Opus judge, with one
   retry for a reply that breaks the cap rule.
 
-| AC | Criterion |
-| --- | --- |
-| AC1 | Pooled report-length ratio (candidate over original) at most 0.70, and at most 0.85 for every model. |
-| AC2 | Pooled PASS-100 difference at least -1.5; every per-model difference at least -4; lower bound of the stratified 90 percent bootstrap at least -4.5; holdout pooled difference at least -3. |
-| AC3 | Pooled documentation-plus-process difference at least -0.5; capped sessions at most the original's plus 2 (of 30). |
-| AC4 | Resolved at least the original's minus 1; strict reproduced first at least the original's minus 3, pooled, and the same for Sonnet; pooled cost ratio at most 1.05. |
-| AC5 | Full unit suite, `validate_package.py`, mirror byte equality, matching init fingerprints, and CI on Ubuntu, Windows, and macOS pass. |
-| AC6 | Final independent review R2 has no open blocking finding. R2 reads sample reports from both arms and confirms the required content is still present. Blocking findings are fixed and confirmed. |
+| AC | Criterion | `compare` key |
+| --- | --- | --- |
+| AC1 | Pooled report-length ratio at most 0.70 and at most 0.85 for every model; pooled total-text ratio at most 0.90. | `report_length` |
+| AC2 | Pooled PASS-100 difference at least -1.5; every per-model difference at least -4; lower bound of the stratified 90 percent bootstrap at least -4.5; holdout pooled difference at least -3. | `AC3`, `AC4` |
+| AC3 | Pooled documentation-plus-process difference at least -0.5; every report-content item at least the original's count minus 5 (of 40). | `doc_process`, `report_content` |
+| AC4 | Resolved at least the original's minus 1; strict reproduced first at least the original's minus 5 pooled and minus 4 for Sonnet (of 20); pooled cost ratio at most 1.05. | `AC5`, `AC6`, `AC2` |
+| AC5 | Full unit suite, `validate_package.py`, mirror byte equality, matching init fingerprints, and CI on Ubuntu, Windows, and macOS pass. | — |
+| AC6 | Final independent review R2 has no open blocking finding. R2 reads at least 10 report pairs. Blocking findings are fixed and confirmed. | — |
+
+Capped counts are reported as a diagnostic.
 
 Decision: if every criterion is met, squash-merge into `main`. Otherwise do not
 merge and record the result here.
 
-Error rates for a change that is neutral on quality:
+Error rates for a change that is neutral on quality, from R1's estimates
+(paired SDs Haiku about 9, Sonnet about 12, Opus about 2):
 
 | Criterion | Chance a neutral change fails it |
 | --- | --- |
-| AC2 | about 16% |
-| AC3 | about 12% |
-| AC4 | about 12% |
+| AC2 | about 21% |
+| AC3 | about 8% |
+| AC4 | about 8% |
 | Any of these | about 35% |
 
-The design accepts that and prefers a false no-merge to a false merge.
+Two more limits:
+
+- AC1 fails about 10 percent of the time at a true ratio of 0.65, and about half
+  the time at 0.70.
+- The design accepts these and prefers a false no-merge to a false merge.
 
 ## Budget, Time, and Stop Rules
 
 - Cap: 30 USD, enforced by a separate ledger
   (`/home/user/hygiene-evals/brevity/ledger.jsonl`).
-- Planned spend:
+- Spend:
 
-  | Item | Estimate |
+  | Item | Cost |
   | --- | --- |
   | Calibration | 3.52 USD (actual) |
-  | Loop | about 2.1 USD per step plus a driver of at most 1.50 USD |
-  | Confirmation | about 2.1 USD |
-  | Final comparison (60 sessions plus judge) | about 13 USD |
+  | Loop | about 2 USD per step, up to 3 steps, plus a driver of at most 1.50 USD |
+  | Final comparison (80 sessions plus judge) | about 16 USD |
 
-  Loop guards stop at a ledger total of 13 USD, which reserves the final
-  comparison and confirmation (B-1).
+  Loop measures stop at a ledger total of 12 USD.
 - Times (UTC):
   - loop ends by 22:45;
   - final comparison graded by 23:15;
@@ -200,7 +242,20 @@ The design accepts that and prefers a false no-merge to a false merge.
 
 | ID | Review | Severity | Finding | Disposition |
 | --- | --- | --- | --- | --- |
-| B-1 | Calibration | minor | Calibration cost 3.52 USD, not 2: six parallel judge calls each wrote the 20k-token rubric to the prompt cache (0.31 USD each, against 0.06 when it was read from the cache). | `grade_all` now grades one session first so later calls read the cache. Driver budget is 1.50 USD and the loop ledger stop is 13 USD, so the final comparison stays within the 30 USD cap. No quality threshold changed. |
+| B-1 | Calibration | minor | Calibration cost 3.52 USD: parallel judge calls each wrote the rubric to the prompt cache. | `grade_all` grades one session first; budget stops tightened. No quality threshold changed. |
+| R1-1 | R1 | blocking | Required content was protected only in the skill text; anchors could be hollowed (RA4 always matched LB39); the judge rewards omissions. | Fixed. Frozen content patterns on the final messages are checked in the guard (base minus 3 of 12) and in AC3 (original minus 5 of 40). Anchors ignore frozen sentences. A fresh reviewer reads the kept diff before the final comparison. |
+| R1-2 | R1 | major | Report length can be gamed by moving content into earlier messages. | Fixed: total text is in the guard (ratio at most 1.10) and in AC1 (at most 0.90). A session with no final message is a failure. |
+| R1-3 | R1 | major | The guard's false-rejection rate was understated, mostly from the cap check. | Cap check removed (see R1-5); the combined rate, about 20 percent per step, is stated. |
+| R1-4 | R1 | major | AC2's neutral failure rate was about 29 to 38 percent with one Sonnet round. | Fixed: Sonnet runs twice (about 21 percent). Funded by dropping the separate confirmation run and capping the loop at 3 iterations. |
+| R1-5 | R1 | major | Cap criteria push the wrong way for a wording change. | Caps are diagnostic only. Strict reproduced first is the process criterion. |
+| R1-6 | R1 | major | The confirmation run was undefined. | Dropped; the final comparison is the confirmation, and a failure there means no merge. |
+| R1-7 | R1 | major | The lead-in region held an unprotected process rule. | Fixed: LB40 is frozen, and the region holds only the checklist sentence, which must still mention the checklist (LA1). |
+| R1-8 | R1 | minor | The budget was tight. | Fixed: at most 3 iterations, ledger stop 12 USD, and spend stated. |
+| R1-9 | R1 | minor | The Sonnet reproduced-first rule was nearly pointless with one round. | With two Sonnet rounds it is minus 4 of 20; pooled minus 5 of 40. |
+| R1-10 | R1 | minor | "Capped" was imprecise. | Defined as a total of 72 or less; diagnostic only. |
+| R1-11 | R1 | minor | Anchor matching rules were unstated, and RA2 was too loose. | Matching rules stated; RA2 now requires "command" and "result". |
+| R1-12 | R1 | minor | Opus is unmeasured in the loop, and noise lets non-improving steps be kept. | Opus risk stated; a step needs at least a 10 percent gain to be kept. |
+| R1-13 | R1 | minor | `compare` criteria names did not match the spec's ACs, and size flags could crash it. | Mapping given in the AC table; `compare` skips the size criterion when the spec has none. |
 
 ## Results
 

@@ -29,7 +29,10 @@ class CoreRuleTests(unittest.TestCase):
                     self.assertEqual([rule], missing_rules(mutated, SPEC["load_bearing"]))
 
     def test_report_keeps_its_required_content(self) -> None:
-        self.assertEqual([], missing_anchors(SKILL, SPEC["report_anchors"]))
+        frozen = [sentence for sentences in SPEC["load_bearing"].values() for sentence in sentences]
+        for anchors in SPEC["anchors"]:
+            with self.subTest(region=anchors["region"][0]):
+                self.assertEqual([], missing_anchors(SKILL, anchors, strip=frozen))
 
     def test_frontmatter_is_unchanged(self) -> None:
         self.assertEqual(SPEC["frontmatter_sha256"], frontmatter_sha256(SKILL))
