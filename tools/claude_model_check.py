@@ -320,13 +320,25 @@ def run_sessions(args: argparse.Namespace) -> None:
         allowed, args.max_turns = {"description", "claude-md"}, args.max_turns or 8
     if not set(setups) <= allowed:
         raise SystemExit(f"--setups for {args.check} must be from: {', '.join(sorted(allowed))}")
+    if args.check == "fixtures":
+        for case in cases:
+            find_fixture(TRAINER_ROOT / "fixtures", case)
     (args.out / "targets").mkdir(parents=True)
+
+    def guarded(*entry: object) -> dict:
+        model, case, setup, round_no = entry
+        try:
+            return job(args, *entry)
+        except (Exception, SystemExit) as exc:  # one broken session must not discard the others
+            return {"check": args.check, "setup": setup, "model": model, "case": case, "round": round_no,
+                    "loaded_skill": False, "fixed": False, "protected_files_ok": False, "completed": False,
+                    "cost_usd": None, "error": f"{type(exc).__name__}: {exc}"}
 
     plan = [(model, case, setup, round_no) for round_no in range(1, args.rounds + 1)
             for setup in setups for model in args.models for case in cases]
     rows: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = [pool.submit(job, args, *entry) for entry in plan]
+        futures = [pool.submit(guarded, *entry) for entry in plan]
         for future in concurrent.futures.as_completed(futures):
             row = future.result()
             rows.append(row)
