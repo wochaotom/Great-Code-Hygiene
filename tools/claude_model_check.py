@@ -12,7 +12,8 @@
             write model-execution result files, and compare each setup with `none`
             using validate_results.py and analyze_runs.py.
 
-Both plugins load from this checkout with --plugin-dir, so nothing is installed.
+Plugins load with --plugin-dir from a temporary copy of this checkout, so nothing is
+installed and a model exploring the skill's folder cannot reach the fixture repos.
 Skills or plugins already enabled in your Claude Code config also compete; point
 CLAUDE_CONFIG_DIR at a clean config to isolate the run. Every run calls the model
 and uses your Claude usage.
@@ -64,11 +65,25 @@ def claude_executable() -> str:
     return executable
 
 
-def claude_command(model: str, max_turns: int, plugins: bool) -> list[str]:
+def stage_plugins() -> dict[str, Path]:
+    """Copy both editions to a fresh temporary folder, as an install would.
+
+    Claude Code tells the model where a skill lives. Loading plugins straight from this checkout
+    led a model to the repository, where the fixture repos and their lessons sit next to the skill.
+    """
+    root = Path(tempfile.mkdtemp(prefix="hygiene-plugins-"))
+    ignore = shutil.ignore_patterns("__pycache__", ".pytest_cache", ".mypy_cache", "runs")
+    plugins = {"clean": root / "code-hygiene", "trainer": root / "code-hygiene-compounder"}
+    shutil.copytree(REPO_ROOT / "code-hygiene", plugins["clean"], ignore=ignore)
+    shutil.copytree(TRAINER_ROOT, plugins["trainer"], ignore=ignore)
+    return plugins
+
+
+def claude_command(model: str, max_turns: int, plugin_dirs: list[Path]) -> list[str]:
     command = [claude_executable(), "-p", "--model", model, "--output-format", "stream-json", "--verbose",
                "--max-turns", str(max_turns), "--permission-mode", "acceptEdits", "--allowedTools", ALLOWED_TOOLS]
-    if plugins:
-        command += ["--plugin-dir", str(REPO_ROOT / "code-hygiene"), "--plugin-dir", str(TRAINER_ROOT)]
+    for plugin_dir in plugin_dirs:
+        command += ["--plugin-dir", str(plugin_dir)]
     return command
 
 
@@ -124,7 +139,8 @@ def fixture_job(args: argparse.Namespace, model: str, fixture_id: str, setup: st
     # An opaque folder name keeps the setup and model out of paths the blind judge reads.
     target = args.out / "targets" / f"run-{uuid.uuid4().hex[:12]}"
     copy_fixture_repo(item, target, force=True)
-    session = run_claude(claude_command(model, args.max_turns, setup != "none"), prompt, target, target.parent / f"{target.name}.jsonl", args.timeout)
+    plugin_dirs = {"none": [], "invoked": [args.plugins["clean"]], "available": list(args.plugins.values())}[setup]
+    session = run_claude(claude_command(model, args.max_turns, plugin_dirs), prompt, target, target.parent / f"{target.name}.jsonl", args.timeout)
     score = run_fixture_target(item, target, args.timeout)
     return {"check": "fixtures", "setup": setup, "model": model, "case": fixture_id, "round": round_no,
             "target": str(target), "fixed": score["outcome"] == "pass", "test_outcome": score["outcome"],
@@ -138,7 +154,7 @@ def trigger_job(args: argparse.Namespace, model: str, request: str, setup: str, 
     copy_fixture_repo(find_fixture(TRAINER_ROOT / "fixtures", fixture_id), target, force=True)
     if setup == "claude-md":
         (target / "CLAUDE.md").write_text(CLAUDE_MD_LINE, encoding="utf-8")
-    session = run_claude(claude_command(model, args.max_turns, True), prompt, target, target.parent / f"{target.name}.jsonl", args.timeout)
+    session = run_claude(claude_command(model, args.max_turns, list(args.plugins.values())), prompt, target, target.parent / f"{target.name}.jsonl", args.timeout)
     return {"check": "triggers", "setup": setup, "model": model, "case": request, "round": round_no,
             "loaded_skill": CLEAN_SKILL in session["skills"], **session}
 
@@ -328,6 +344,7 @@ def run_sessions(args: argparse.Namespace) -> None:
         for case in cases:
             find_fixture(TRAINER_ROOT / "fixtures", case)
     (args.out / "targets").mkdir(parents=True)
+    args.plugins = stage_plugins()
 
     def guarded(*entry: object) -> dict:
         model, case, setup, round_no = entry
@@ -349,6 +366,7 @@ def run_sessions(args: argparse.Namespace) -> None:
             print(f"{row['setup']:<11} {row['model']:<10} {row['case']:<34} r{row['round']} loaded_skill={row['loaded_skill']}"
                   + (f" fixed={row['fixed']}" if "fixed" in row else "") + (f" error={row['error']}" if row["error"] else ""), flush=True)
 
+    shutil.rmtree(next(iter(args.plugins.values())).parent, ignore_errors=True)
     rows.sort(key=lambda row: (row["setup"], row["model"], row["case"], row["round"]))
     (args.out / "results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     keys = ("loaded_skill", "fixed", "protected_files_ok") if args.check == "fixtures" else ("loaded_skill",)
