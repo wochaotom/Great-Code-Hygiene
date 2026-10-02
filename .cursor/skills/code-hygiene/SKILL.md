@@ -111,7 +111,8 @@ For reviews, lead with findings ordered by severity. Include file/line evidence
 when available, and distinguish confirmed bugs from plausible risks. Each finding
 should name the behavior risk, affected path, evidence, and a practical fix
 direction. Do not report theoretical issues as confirmed without a code path or
-behavior path.
+behavior path. If no issues are found, say so and name any test gaps or residual
+risk.
 
 For implementation work, report:
 
