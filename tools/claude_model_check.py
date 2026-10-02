@@ -20,6 +20,9 @@
             Exit 0 pass, 1 behavioral fail, 2 static fail, 3 budget, 4 infrastructure.
   compare   Pair two graded `fixtures` runs (original and candidate skill) and evaluate
             the spec's acceptance criteria.
+  measure   Run the spec's measure sessions on a SKILL.md text, grade them with the blind
+            judge, cache the run by the text's hash, and print the pooled final-report
+            length (the loop metric for report brevity).
 
 Plugins load with --plugin-dir from a temporary copy of this checkout, so nothing is
 installed and a model exploring the skill's folder cannot reach the fixture repos.
@@ -35,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import difflib
 import hashlib
 import json
@@ -146,6 +150,46 @@ def new_words(candidate: str, *references: str) -> list[str]:
     """Lowercase words in the candidate that no reference uses: new vocabulary, abbreviations, or hints."""
     known = {word for text in references for word in WORD.findall(text.lower())}
     return sorted(set(WORD.findall(candidate.lower())) - known)
+
+
+def region_violations(candidate: str, base: str, regions: list[list[str]]) -> list[str]:
+    """Failures when the candidate's normalized body changed outside the editable (start, end) marker regions."""
+    def outside(text: str) -> list[str] | None:
+        body, parts, position = normalized_body(text), [], 0
+        spans = []
+        for start, end in regions:
+            begin = body.find(start)
+            finish = body.find(end, begin + len(start)) if begin >= 0 else -1
+            if begin < 0 or finish < 0:
+                return None
+            spans.append((begin, begin + len(start), finish))
+        for begin, inner, finish in sorted(spans):
+            parts.append(body[position:inner])
+            position = finish
+        parts.append(body[position:])
+        return parts
+
+    before, after = outside(base), outside(candidate)
+    if after is None or before is None:
+        return ["editable-region marker missing or moved"]
+    for old, new in zip(before, after):
+        if old != new:
+            index = next((i for i, (a, b) in enumerate(zip(old, new)) if a != b), min(len(old), len(new)))
+            return [f"text changed outside editable regions near: {new[max(0, index - 40):index + 40]!r}"]
+    return []
+
+
+def missing_anchors(text: str, anchors: dict) -> list[str]:
+    """Anchor ids whose phrase groups no longer all match inside the anchors' region (case-insensitive)."""
+    body = normalized_body(text).lower()
+    start, end = (marker.lower() for marker in anchors["region"])
+    begin = body.find(start)
+    finish = body.find(end, begin + len(start)) if begin >= 0 else -1
+    if begin < 0 or finish < 0:
+        return ["region"]
+    region = body[begin:finish]
+    return [key for key, groups in anchors.items() if key != "region"
+            and not all(any(phrase.lower() in region for phrase in group) for group in groups)]
 
 
 def shell_segments(command: str) -> list[list[str]]:
@@ -729,7 +773,8 @@ def git(*arguments: str) -> str:
 
 
 def static_guard(*, candidate: str, base: str, previous: str, original: str, changed_files: list[str], guard: dict,
-                 rules: dict[str, list[str]], frontmatter: str) -> list[str]:
+                 rules: dict[str, list[str]], frontmatter: str, regions: list[list[str]] | None = None,
+                 anchors: dict | None = None) -> list[str]:
     """Model-free checks on a candidate SKILL.md; returns the failures, cheapest first."""
     failures = []
     if frontmatter_sha256(candidate) != frontmatter:
@@ -737,13 +782,19 @@ def static_guard(*, candidate: str, base: str, previous: str, original: str, cha
     outside = sorted(set(changed_files) - set(guard["scope"]))
     if outside:
         failures.append(f"scope: files outside scope changed: {', '.join(outside)}")
-    if normalized_body(candidate) != normalized_body(base):
+    if guard["min_step_bytes"] and normalized_body(candidate) != normalized_body(base):
         saved = skill_size(previous) - skill_size(candidate)
         if saved < guard["min_step_bytes"]:
             failures.append(f"step saved {saved} normalized bytes; need at least {guard['min_step_bytes']}")
+    if regions:
+        failures.extend(region_violations(candidate, base, regions))
     missing = missing_rules(candidate, rules)
     if missing:
         failures.append(f"load-bearing rules missing or reworded: {', '.join(missing)}")
+    if anchors:
+        lost = missing_anchors(candidate, anchors)
+        if lost:
+            failures.append(f"report anchors missing: {', '.join(lost)}")
     added = new_words(normalized_body(candidate), normalized_body(original), normalized_body(base))
     if len(added) > guard["max_new_words"]:
         failures.append(f"new words {len(added)} > {guard['max_new_words']}: {', '.join(added)}")
@@ -769,6 +820,46 @@ def behavior_verdict(first: list[dict], second: list[dict] | None, guard: dict) 
     if unresolved(second) > guard["max_unresolved_per_stage"]:
         return "fail"
     return "pass" if hits + sum(bool(row["reproduced_first"]) for row in second) >= guard["second_stage_pass_total"] else "fail"
+
+
+def pooled_mean(rows: list[dict], field: str) -> float:
+    """Mean of the per-model means, so a model with more sessions does not outweigh the others."""
+    models = sorted({row["model"] for row in rows})
+    return statistics.mean(statistics.mean(row[field] for row in rows if row["model"] == model) for model in models)
+
+
+def doc_process(row: dict) -> float:
+    categories = row.get("categories") or {}
+    return float(categories.get("documentation", 0)) + float(categories.get("agent_process", 0))
+
+
+def brevity_verdict(candidate: list[dict], base: list[dict], guard: dict) -> tuple[str, list[str]]:
+    """Judge-based guard for a candidate's measured sessions against the base text's measured sessions."""
+    if not candidate or any(not row.get("completed") or row.get("error") for row in candidate):
+        return "infrastructure", ["a measured session did not finish"]
+
+    def mean(rows: list[dict], value) -> float:
+        return statistics.mean(value(row) for row in rows)
+
+    def capped(rows: list[dict]) -> int:
+        return sum(row["total"] <= 72 for row in rows)
+
+    reasons = []
+    score = mean(candidate, lambda row: row["total"]) - mean(base, lambda row: row["total"])
+    if score < guard["min_score_delta"]:
+        reasons.append(f"score delta {score:+.2f} below {guard['min_score_delta']}")
+    if capped(candidate) > capped(base) + guard["max_capped_increase"]:
+        reasons.append(f"capped sessions {capped(candidate)} vs base {capped(base)}")
+    process = mean(candidate, doc_process) - mean(base, doc_process)
+    if process < guard["min_doc_process_delta"]:
+        reasons.append(f"documentation+process delta {process:+.2f} below {guard['min_doc_process_delta']}")
+    unresolved = sum(not (row["fixed"] and row["protected_files_ok"]) for row in candidate)
+    if unresolved > guard["max_unresolved"]:
+        reasons.append(f"unresolved sessions {unresolved}")
+    first = sum(bool(row["reproduced_first"]) for row in candidate)
+    if first < guard["min_reproduced_first"]:
+        reasons.append(f"reproduced first {first} below {guard['min_reproduced_first']}")
+    return ("fail" if reasons else "pass"), reasons
 
 
 def compare_arms(original: list[dict], candidate: list[dict], final: dict, holdout: list[str]) -> dict:
@@ -838,11 +929,19 @@ def compare_arms(original: list[dict], candidate: list[dict], final: dict, holdo
         "final_report_chars_ratio": ratio("final_report_chars"),
         "token_ratios": components,
         "first_turn_token_saving": token_saving,
+        "report_ratio": ratio("final_report_chars"),
+        "report_ratio_per_model": {model: (model_mean(after, model, "final_report_chars") / model_mean(before, model, "final_report_chars")
+                                           if model_mean(before, model, "final_report_chars") else None) for model in models},
         "resolved": {"original": count(before, "resolved"), "candidate": count(after, "resolved")},
         "reproduced_first": {"original": count(before, "reproduced_first"), "candidate": count(after, "reproduced_first"),
                              "sonnet_original": count(before, "reproduced_first", "sonnet"),
                              "sonnet_candidate": count(after, "reproduced_first", "sonnet")},
     }
+    if all(arm[pair].get("categories") for arm in (before, after) for pair in pairs):
+        result["doc_process_delta"] = pooled({model: statistics.mean(doc_process(after[pair]) - doc_process(before[pair])
+                                                                     for pair in by_model[model]) for model in models})
+    result["capped"] = {"original": sum(before[pair]["total"] <= 72 for pair in pairs),
+                        "candidate": sum(after[pair]["total"] <= 72 for pair in pairs)}
     first = result["reproduced_first"]
     tokens_ok = ("min_first_turn_token_saving" not in final
                  or (token_saving is not None and min(token_saving.values()) >= final["min_first_turn_token_saving"]))
@@ -856,6 +955,15 @@ def compare_arms(original: list[dict], candidate: list[dict], final: dict, holdo
         "AC6": first["candidate"] >= first["original"] - final["reproduced_first_slack"]
                and first["sonnet_candidate"] >= first["sonnet_original"] - final["sonnet_reproduced_first_slack"],
     }
+    if "max_report_ratio" in final:
+        per_model = [value for value in result["report_ratio_per_model"].values() if value is not None]
+        result["criteria"]["report_length"] = (result["report_ratio"] is not None and result["report_ratio"] <= final["max_report_ratio"]
+                                               and all(value <= final["max_model_report_ratio"] for value in per_model))
+    if "min_doc_process_delta" in final:
+        result["criteria"]["doc_process"] = ("doc_process_delta" in result
+                                             and result["doc_process_delta"] >= final["min_doc_process_delta"])
+    if "max_capped_increase" in final:
+        result["criteria"]["caps"] = result["capped"]["candidate"] <= result["capped"]["original"] + final["max_capped_increase"]
     return result
 
 
@@ -867,7 +975,8 @@ def load_rows(run: Path) -> list[dict]:
         grades = {(grade["setup"], grade["model"], grade["case"], grade["round"]): grade
                   for grade in json.loads((run / "grades.json").read_text(encoding="utf-8"))}
         for row in rows:
-            row["total"] = grades.get((row["setup"], row["model"], row["case"], row["round"]), {}).get("total")
+            grade = grades.get((row["setup"], row["model"], row["case"], row["round"]), {})
+            row.update(total=grade.get("total"), categories=grade.get("categories"), rubric_flags=grade.get("rubric_flags"))
     return rows
 
 
@@ -908,16 +1017,28 @@ def guard(args: argparse.Namespace) -> None:
     base = git("show", f"{args.base}:{spec['skill']}")
     has_parent = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "HEAD~1"], cwd=REPO_ROOT, capture_output=True).returncode == 0
     previous = git("show", f"HEAD~1:{spec['skill']}") if has_parent else base
-    original = git("show", f"{spec['original_commit']}:{spec['skill']}")
+    original = git("show", f"{spec.get('original_commit') or spec['base_commit']}:{spec['skill']}")
     changed = [line for line in git("diff", "--name-only", args.base).splitlines() if line.strip()]
     failures = static_guard(candidate=candidate, base=base, previous=previous, original=original, changed_files=changed,
-                            guard=settings, rules=spec["load_bearing"], frontmatter=spec["frontmatter_sha256"])
+                            guard=settings, rules=spec["load_bearing"], frontmatter=spec["frontmatter_sha256"],
+                            regions=spec.get("editable_regions"), anchors=spec.get("report_anchors"))
     print(f"size {skill_size(candidate)} (original {skill_size(original)}, base {skill_size(base)}, previous {skill_size(previous)})")
     added = new_words(normalized_body(candidate), normalized_body(original), normalized_body(base))
     print(f"new words: {', '.join(added) or 'none'}")
     if failures:
         print("guard: static fail\n- " + "\n- ".join(failures))
         raise SystemExit(2)
+    if args.measured:
+        measured = [measure_dir(args.out_root, text) / "measure.json" for text in (candidate, base)]
+        if not all(path.is_file() for path in measured):
+            print(f"guard: infrastructure; no measure run for {', '.join(str(path.parent) for path in measured if not path.is_file())}")
+            raise SystemExit(4)
+        rows, base_rows = (json.loads(path.read_text(encoding="utf-8"))["rows"] for path in measured)
+        verdict, reasons = brevity_verdict(rows, base_rows, settings)
+        print(f"guard: {verdict}; score {statistics.mean(row['total'] for row in rows):.1f} vs base "
+              f"{statistics.mean(row['total'] for row in base_rows):.1f}; report {pooled_mean(rows, 'final_report_chars'):.0f} vs base "
+              f"{pooled_mean(base_rows, 'final_report_chars'):.0f} chars" + "".join(f"\n- {reason}" for reason in reasons))
+        raise SystemExit({"pass": 0, "fail": 1, "infrastructure": 4}[verdict])
 
     args.out_root.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
@@ -961,6 +1082,59 @@ def guard(args: argparse.Namespace) -> None:
     print(f"guard: {verdict}; reproduced_first={report['reproduced_first']}/{report['sessions']} unresolved={report['unresolved']} "
           f"stages={report['stages']} cost=${report['cost_usd']:.2f} ledger=${ledger.spent():.2f}. Wrote {run / 'guard.json'}")
     raise SystemExit({"pass": 0, "fail": 1, "infrastructure": 4}[verdict])
+
+
+def measure_dir(out_root: Path, text: str) -> Path:
+    return out_root / f"measure-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
+
+
+def run_measure(spec: dict, text: str, args: argparse.Namespace) -> dict:
+    """Run and grade the spec's measure sessions for one SKILL.md text; cached by the text's hash."""
+    settings, run = spec["measure"], measure_dir(args.out_root, text)
+    done = run / "measure.json"
+    if done.is_file():
+        return json.loads(done.read_text(encoding="utf-8"))
+    ledger = Ledger(args.ledger, args.budget_usd)
+    shutil.rmtree(run, ignore_errors=True)  # a previous attempt that never finished
+    (run / "targets").mkdir(parents=True)
+    with contextlib.redirect_stdout(sys.stderr), tempfile.TemporaryDirectory(prefix="hygiene-candidate-") as temp:
+        skill_file = Path(temp) / "SKILL.md"
+        skill_file.write_text(text, encoding="utf-8")
+        session_args = argparse.Namespace(check="fixtures", out=run, max_turns=settings["max_turns"], timeout=args.timeout,
+                                          jobs=args.jobs, retries=1, plugins=stage_plugins(skill_file), clean_config=False)
+        try:
+            plan = [(model, case, "invoked", round_no) for round_no in range(1, settings["rounds"] + 1)
+                    for model in settings["models"] for case in spec["fixtures"]["train"]]
+            rows = run_plan(session_args, fixture_job, plan, ledger)
+        finally:
+            shutil.rmtree(session_args.plugins["clean"].parent, ignore_errors=True)
+        (run / "results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        if any(str(row["error"]).startswith("budget") for row in rows):
+            raise SystemExit(3)
+        if any(not row["completed"] or row["error"] for row in rows):
+            raise SystemExit(4)
+        grades = grade_all(rows, lambda row: grade_job(settings["judge"], row, args.timeout, ledger, False, run.name), args.jobs, 1)
+        if any("error" in grade for grade in grades):
+            raise SystemExit(4)
+    for row, grade in zip(rows, grades):
+        row.update(total=grade["total"], categories=grade["categories"], rubric_flags=grade["rubric_flags"],
+                   judge_cost_usd=grade.get("judge_cost_usd"))
+    payload = {"skill_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "size": skill_size(text),
+               "metric": pooled_mean(rows, "final_report_chars"), "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "rows": rows}
+    done.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
+
+
+def measure(args: argparse.Namespace) -> None:
+    spec = json.loads(args.config.read_text(encoding="utf-8"))
+    text = (args.text or REPO_ROOT / spec["skill"]).read_text(encoding="utf-8")
+    payload = run_measure(spec, text, args)
+    rows = payload["rows"]
+    print(f"measure: report {payload['metric']:.1f} chars (pooled); score {statistics.mean(row['total'] for row in rows):.1f}; "
+          f"capped {sum(row['total'] <= 72 for row in rows)}; sessions {len(rows)}; run {measure_dir(args.out_root, text)}",
+          file=sys.stderr)
+    print(f"{payload['metric']:.1f}")
 
 
 def compare(args: argparse.Namespace) -> None:
@@ -1030,6 +1204,14 @@ def main() -> None:
     sub.add_argument("--from-run", type=Path, help="Evaluate the behavioral stage on a finished fixtures run instead.")
     sub.add_argument("--setup", default="invoked", help="Setup to read with --from-run.")
     sub.add_argument("--no-cache", action="store_true", help="Run sessions even if this exact text passed before.")
+    sub.add_argument("--measured", action="store_true", help="Judge-based guard from the cached measure runs of the candidate and base.")
+    sub.add_argument("--jobs", type=int, default=6)
+    sub.add_argument("--timeout", type=int, default=900)
+    sub = commands.add_parser("measure")
+    budget(sub)
+    sub.add_argument("--config", type=Path, required=True, help="Spec JSON with a measure section.")
+    sub.add_argument("--text", type=Path, help="SKILL.md to measure. Default: this checkout's code-hygiene/SKILL.md.")
+    sub.add_argument("--out-root", type=Path, default=Path(tempfile.gettempdir()) / "hygiene-measure")
     sub.add_argument("--jobs", type=int, default=6)
     sub.add_argument("--timeout", type=int, default=900)
     sub = commands.add_parser("compare")
@@ -1043,7 +1225,7 @@ def main() -> None:
     if args.check == "size":
         print(skill_size(args.path.read_text(encoding="utf-8")))
     else:
-        {"grade": grade, "metrics": metrics, "guard": guard, "compare": compare}.get(args.check, run_sessions)(args)
+        {"grade": grade, "metrics": metrics, "guard": guard, "compare": compare, "measure": measure}.get(args.check, run_sessions)(args)
 
 
 if __name__ == "__main__":

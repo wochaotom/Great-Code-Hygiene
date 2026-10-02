@@ -11,15 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from claude_model_check import (  # noqa: E402
     Ledger,
     behavior_verdict,
+    brevity_verdict,
     claude_env,
     compare_arms,
     grade_all,
     init_fingerprint,
     is_file_change,
     is_test_command,
+    load_rows,
+    missing_anchors,
     new_words,
     parse_judgement,
+    pooled_mean,
     ran_tests,
+    region_violations,
     reproduced_first,
     result_files,
     scrub,
@@ -338,6 +343,70 @@ class ResultFileTests(unittest.TestCase):
             self.assertEqual(len(ids), len(set(ids)), name)
 
 
+class BrevityTests(unittest.TestCase):
+    SKILL = (FRONT + "## Workflow\nCopy this checklist into your reply:\n```\nHygiene progress:\n- [ ] Ground\n```\n"
+             "### 1. Ground\nRead the code.\n### 6. Report\nFor implementation work, report the feedback loop, "
+             "commands run and their results, unrun checks, assumptions, and residual risk.\n## Hard Stops\nDo not train.\n")
+    REGIONS = [["### 6. Report", "## Hard Stops"], ["## Workflow", "``` Hygiene progress:"]]
+    ANCHORS = {"region": ["### 6. Report", "## Hard Stops"], "RA1": [["feedback loop"]],
+               "RA2": [["command", "check"], ["result"]], "RA3": [["unrun", "not run"]]}
+
+    def test_edits_inside_regions_are_allowed(self) -> None:
+        shorter = self.SKILL.replace("Copy this checklist into your reply:", "Use this checklist:").replace(
+            "For implementation work, report the feedback loop, commands run and their results, unrun checks, assumptions, and residual risk.",
+            "Report the feedback loop, commands and results, and unrun checks.")
+        self.assertEqual([], region_violations(shorter, self.SKILL, self.REGIONS))
+
+    def test_edits_outside_regions_are_rejected(self) -> None:
+        changed = self.SKILL.replace("Read the code.", "Read code.")
+        self.assertTrue(any("outside" in failure for failure in region_violations(changed, self.SKILL, self.REGIONS)))
+        broken = self.SKILL.replace("## Hard Stops", "## Stops")
+        self.assertTrue(any("marker" in failure for failure in region_violations(broken, self.SKILL, self.REGIONS)))
+
+    def test_report_anchors(self) -> None:
+        self.assertEqual([], missing_anchors(self.SKILL, self.ANCHORS))
+        self.assertEqual(["RA2"], missing_anchors(self.SKILL.replace("and their results", ""), self.ANCHORS))
+        moved = self.SKILL.replace("unrun checks, ", "").replace("Read the code.", "Read the code; note unrun checks.")
+        self.assertEqual(["RA3"], missing_anchors(moved, self.ANCHORS))
+
+    def rows(self, totals: list[float], docproc: float = 8.0, resolved: int = 12, first: int = 6) -> list[dict]:
+        return [{"total": total, "categories": {"documentation": docproc / 2, "agent_process": docproc / 2},
+                 "fixed": index < resolved, "protected_files_ok": True, "reproduced_first": index < first,
+                 "completed": True, "error": ""} for index, total in enumerate(totals)]
+
+    def test_brevity_verdict(self) -> None:
+        guard = {"min_score_delta": -4.0, "max_capped_increase": 1, "min_doc_process_delta": -1.0, "max_unresolved": 1,
+                 "min_reproduced_first": 4}
+        base = self.rows([88.0] * 11 + [72.0])
+        self.assertEqual("pass", brevity_verdict(self.rows([86.0] * 10 + [72.0, 72.0]), base, guard)[0])
+        cases = {"score": self.rows([82.0] * 12), "capped": self.rows([95.0] * 9 + [72.0] * 3),
+                 "documentation": self.rows([88.0] * 12, docproc=6.5), "unresolved": self.rows([88.0] * 12, resolved=10),
+                 "reproduced": self.rows([88.0] * 12, first=3)}
+        for reason, candidate in cases.items():
+            with self.subTest(reason=reason):
+                verdict, reasons = brevity_verdict(candidate, base, guard)
+                self.assertEqual("fail", verdict)
+                self.assertTrue(any(reason in text for text in reasons), reasons)
+        broken = self.rows([88.0] * 12)
+        broken[0] = {**broken[0], "completed": False, "error": "timed out"}
+        self.assertEqual("infrastructure", brevity_verdict(broken, base, guard)[0])
+
+    def test_pooled_mean_weighs_models_equally(self) -> None:
+        rows = [{"model": "haiku", "final_report_chars": 1000}] * 6 + [{"model": "sonnet", "final_report_chars": 2000}] * 2
+        self.assertEqual(1500, pooled_mean(rows, "final_report_chars"))
+
+    def test_load_rows_carries_grade_categories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run = Path(temp)
+            (run / "results.json").write_text(json.dumps([{"check": "fixtures", "setup": "invoked", "model": "haiku",
+                                                            "case": "hyg-006", "round": 1}]), encoding="utf-8")
+            (run / "grades.json").write_text(json.dumps([{"setup": "invoked", "model": "haiku", "case": "hyg-006", "round": 1,
+                                                           "total": 80.0, "categories": {"documentation": 4},
+                                                           "rubric_flags": {"x": False}}]), encoding="utf-8")
+            row = load_rows(run)[0]
+        self.assertEqual((80.0, {"documentation": 4}, {"x": False}), (row["total"], row["categories"], row["rubric_flags"]))
+
+
 class LedgerTests(unittest.TestCase):
     def test_totals_and_refusal(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -405,6 +474,29 @@ class CompareTests(unittest.TestCase):
         for criterion in ("AC2", "AC3", "AC4", "AC6"):
             self.assertFalse(result["criteria"][criterion], criterion)
         self.assertTrue(result["criteria"]["AC5"])
+
+    def test_brevity_criteria(self) -> None:
+        final = {**FINAL, "max_report_ratio": 0.7, "max_model_report_ratio": 0.85, "min_doc_process_delta": -0.5,
+                 "max_capped_increase": 2}
+        original, shorter = self.arm(0, 0.10), self.arm(0, 0.10, tokens=29500)
+        for row in original:
+            row.update(final_report_chars=1500, categories={"documentation": 4.0, "agent_process": 4.0})
+        for row in shorter:
+            row.update(final_report_chars=900, categories={"documentation": 4.0, "agent_process": 3.8})
+        result = compare_arms(original, shorter, final, holdout=["hyg-001"])
+        self.assertAlmostEqual(0.6, result["report_ratio"])
+        self.assertAlmostEqual(-0.2, result["doc_process_delta"])
+        self.assertTrue(result["criteria"]["report_length"] and result["criteria"]["doc_process"] and result["criteria"]["caps"])
+        for row in shorter:
+            if row["model"] == "opus":
+                row["final_report_chars"] = 1400
+            row["categories"] = {"documentation": 3.0, "agent_process": 3.0}
+        for row in shorter[:3]:
+            row["total"] = 70.0
+        result = compare_arms(original, shorter, final, holdout=["hyg-001"])
+        self.assertFalse(result["criteria"]["report_length"])
+        self.assertFalse(result["criteria"]["doc_process"])
+        self.assertFalse(result["criteria"]["caps"])
 
     def test_unpaired_rows_are_reported(self) -> None:
         original = self.arm(0, 0.1)
