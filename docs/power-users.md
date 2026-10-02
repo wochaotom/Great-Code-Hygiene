@@ -389,9 +389,20 @@ python tools/claude_model_check.py triggers --out ../hygiene-trigger-check --rou
 ```
 
 `fixtures` scores each target with `fixture_runner.py` and accepts `--setups
-none available invoked` to compare runs without the skill. Skills already
-enabled in your Claude Code config compete with these; point `CLAUDE_CONFIG_DIR`
-at a clean config to isolate a run.
+none available invoked` to compare runs without the skill. `grade` then scores a
+finished fixtures run against PASS-100 with a blind judge model, which sees the
+task, the agent's tool calls, the diff, the test result, and the final message
+but not the model or setup. It writes `model-execution` result files, checks
+them with `validate_results.py`, and compares each setup with `none` through
+`analyze_runs.py`:
+
+```bash
+python tools/claude_model_check.py fixtures --out ../hygiene-pass100 --setups none invoked --fixture hyg-006-currency-rounding --fixture hyg-031-sql-injection
+python tools/claude_model_check.py grade --run ../hygiene-pass100
+```
+
+Skills already enabled in your Claude Code config compete with these; point
+`CLAUDE_CONFIG_DIR` at a clean config to isolate a run.
 
 A skill's `model` frontmatter field can run it on a different model than the
 session, and `context: fork` runs it as a separate subagent. Neither is set

@@ -29,7 +29,8 @@ versions for plugin releases.
   and run fixture tests with a private bytecode cache so planted cache files
   cannot replace protected tests.
 - Add `tools/claude_model_check.py` to re-run the cross-model fixture and
-  skill-trigger checks.
+  skill-trigger checks and to grade fixture runs against PASS-100 with a blind
+  judge model.
 
 ## 0.2.0 - 2026-07-14
 
