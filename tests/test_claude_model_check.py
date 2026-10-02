@@ -21,6 +21,7 @@ from claude_model_check import (  # noqa: E402
     parse_judgement,
     ran_tests,
     reproduced_first,
+    result_files,
     scrub,
     session_summary,
     skill_size,
@@ -318,6 +319,23 @@ class GradeAllTests(unittest.TestCase):
         self.assertEqual(2, calls.count("flaky"))
         self.assertEqual(2, calls.count("broken"))
         self.assertEqual(1, calls.count("ok"))
+
+
+class ResultFileTests(unittest.TestCase):
+    def rows(self, model: str, rounds: int) -> list[dict]:
+        return [{"setup": "invoked", "model": model, "case": case, "round": round_no, "fixed": True, "protected_files_ok": True,
+                 "cost_usd": 0.1} for round_no in range(1, rounds + 1)
+                for case in ("hyg-006-currency-rounding", "hyg-031-sql-injection")]
+
+    def test_repeated_rounds_get_one_file_each(self) -> None:
+        rows = self.rows("sonnet", 2) + self.rows("haiku", 1)
+        grades = [{"total": 90.0, "categories": {}, "deductions": []} for _ in rows]
+        files = result_files(rows, grades, commit="abc", judge="opus", now="2026-10-02T00:00:00+00:00")
+        self.assertEqual({"pass100-invoked-haiku.json", "pass100-invoked-sonnet-r1.json", "pass100-invoked-sonnet-r2.json"},
+                         {name for name, _ in files.values()})
+        for name, payload in files.values():
+            ids = [score["prompt_id"] for score in payload["scores"]]
+            self.assertEqual(len(ids), len(set(ids)), name)
 
 
 class LedgerTests(unittest.TestCase):

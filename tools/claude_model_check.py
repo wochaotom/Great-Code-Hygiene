@@ -563,6 +563,30 @@ def grade_all(rows: list[dict], judge, jobs: int, retries: int) -> list[dict]:
     return grades
 
 
+def result_files(rows: list[dict], grades: list[dict], commit: str, judge: str, now: str) -> dict[tuple, tuple[str, dict]]:
+    """Model-execution result payloads: one per setup and model, or per round when a run repeats fixtures."""
+    rounds = Counter((row["setup"], row["model"], row["round"]) for row in rows)
+    repeated = {(setup, model) for setup, model, round_no in rounds if round_no > 1}
+    files: dict[tuple, tuple[str, dict]] = {}
+    for key in sorted({(row["setup"], row["model"], row["round"] if (row["setup"], row["model"]) in repeated else 0) for row in rows}):
+        setup, model, round_no = key
+        scores = []
+        for row, result in zip(rows, grades):
+            if (row["setup"], row["model"]) != (setup, model) or (round_no and row["round"] != round_no):
+                continue
+            item = find_fixture(TRAINER_ROOT / "fixtures", row["case"])
+            scores.append({"prompt_id": item["prompt_id"], "total": result["total"], "categories": result["categories"],
+                           "deductions": result["deductions"], "lessons": [], "resolved": row["fixed"] and row["protected_files_ok"],
+                           "cost_usd": row["cost_usd"] or 0})
+        suffix = f"-r{round_no}" if round_no else ""
+        payload = {"run_id": f"{setup}-{model}{suffix}", "run_type": "model-execution", "phase": 0,
+                   "prompt_ids": sorted({score["prompt_id"] for score in scores}), "scores": scores,
+                   "model": model, "skill_version": commit, "harness": f"claude -p; judge {judge}",
+                   "started_at": now, "completed_at": now}
+        files[key] = (f"pass100-{setup}-{model}{suffix}.json", payload)
+    return files
+
+
 def grade(args: argparse.Namespace) -> None:
     rows = json.loads((args.run / "results.json").read_text(encoding="utf-8"))
     rows = [row for row in rows if row.get("check") == "fixtures"]
@@ -572,49 +596,43 @@ def grade(args: argparse.Namespace) -> None:
     rows = [row for row in rows if row.get("target")]
     if not rows:
         raise SystemExit(f"no fixtures results in {args.run}")
-    ledger = Ledger(args.ledger, args.budget_usd)
-    grades = grade_all(rows, lambda row: grade_job(args.judge, row, args.timeout, ledger, args.clean_config, args.run.name),
-                       args.jobs, args.retries)
-    failed = [(row["setup"], row["model"], row["case"], result["error"]) for row, result in zip(rows, grades) if "error" in result]
-    if failed:
-        raise SystemExit("judge failures:\n" + "\n".join(map(str, failed)))
-    graded = [{**{key: row[key] for key in ("setup", "model", "case", "round")}, **result} for row, result in zip(rows, grades)]
-    (args.run / "grades.json").write_text(json.dumps(graded, indent=2), encoding="utf-8")
+    if args.from_grades:
+        saved = {(grade["setup"], grade["model"], grade["case"], grade["round"]): grade
+                 for grade in json.loads((args.run / "grades.json").read_text(encoding="utf-8"))}
+        grades = [saved[(row["setup"], row["model"], row["case"], row["round"])] for row in rows]
+    else:
+        ledger = Ledger(args.ledger, args.budget_usd)
+        grades = grade_all(rows, lambda row: grade_job(args.judge, row, args.timeout, ledger, args.clean_config, args.run.name),
+                           args.jobs, args.retries)
+        failed = [(row["setup"], row["model"], row["case"], result["error"]) for row, result in zip(rows, grades) if "error" in result]
+        if failed:
+            raise SystemExit("judge failures:\n" + "\n".join(map(str, failed)))
+        graded = [{**{key: row[key] for key in ("setup", "model", "case", "round")}, **result} for row, result in zip(rows, grades)]
+        (args.run / "grades.json").write_text(json.dumps(graded, indent=2), encoding="utf-8")
 
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True).stdout.strip()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    files: dict[tuple[str, str], Path] = {}
-    for setup, model in sorted({(row["setup"], row["model"]) for row in rows}):
-        scores = []
-        for row, result in zip(rows, grades):
-            if (row["setup"], row["model"]) != (setup, model):
-                continue
-            item = find_fixture(TRAINER_ROOT / "fixtures", row["case"])
-            scores.append({"prompt_id": item["prompt_id"], "total": result["total"], "categories": result["categories"],
-                           "deductions": result["deductions"], "lessons": [], "resolved": row["fixed"] and row["protected_files_ok"],
-                           "cost_usd": row["cost_usd"] or 0})
-        payload = {"run_id": f"{setup}-{model}", "run_type": "model-execution", "phase": 0,
-                   "prompt_ids": sorted({score["prompt_id"] for score in scores}), "scores": scores,
-                   "model": model, "skill_version": commit, "harness": f"claude -p; judge {args.judge}",
-                   "started_at": now, "completed_at": now}
-        files[(setup, model)] = args.run / f"pass100-{setup}-{model}.json"
-        files[(setup, model)].write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    files: dict[tuple, Path] = {}
+    for key, (name, payload) in result_files(rows, grades, commit, args.judge, now).items():
+        files[key] = args.run / name
+        files[key].write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     scripts, suite = TRAINER_ROOT / "scripts", TRAINER_ROOT / "references" / "eval-prompts.md"
     for path in files.values():
         subprocess.run([sys.executable, "-B", str(scripts / "validate_results.py"), "--results", str(path), "--suite", str(suite)],
                        check=True, capture_output=True, text=True)
     print("| Setup | Model | Average | Resolved |\n| --- | --- | --- | --- |")
-    for (setup, model), path in files.items():
+    for (setup, model, round_no), path in files.items():
         scores = json.loads(path.read_text(encoding="utf-8"))["scores"]
         average = sum(score["total"] for score in scores) / len(scores)
-        print(f"| {setup} | {model} | {average:.1f} | {sum(score['resolved'] for score in scores)}/{len(scores)} |")
-    for (setup, model), path in files.items():
-        if setup != "none" and ("none", model) in files:
-            out = args.run / f"analysis-{setup}-vs-none-{model}.json"
+        label = f"{model} r{round_no}" if round_no else model
+        print(f"| {setup} | {label} | {average:.1f} | {sum(score['resolved'] for score in scores)}/{len(scores)} |")
+    for (setup, model, round_no), path in files.items():
+        if setup != "none" and ("none", model, round_no) in files:
+            out = args.run / f"analysis-{setup}-vs-none-{model}{f'-r{round_no}' if round_no else ''}.json"
             # analyze_runs.py exits non-zero when it detects a regression; that is a verdict, not a crash.
             completed = subprocess.run([sys.executable, "-B", str(scripts / "analyze_runs.py"), "--results", str(path),
-                                        "--baseline", str(files[("none", model)]), "--suite", str(suite), "--out", str(out)],
+                                        "--baseline", str(files[("none", model, round_no)]), "--suite", str(suite), "--out", str(out)],
                                        capture_output=True, text=True)
             if not out.is_file():
                 raise SystemExit(f"analyze_runs.py failed for {setup} {model}: {completed.stderr.strip()[-400:]}")
@@ -622,7 +640,8 @@ def grade(args: argparse.Namespace) -> None:
             verdict = "regression" if comparison.get("regression_detected") else "no regression"
             print(f"{setup} vs none, {model}: average delta {comparison['average_delta']:+.2f}, {verdict}. Wrote {out}")
     judge_cost = sum(result.get("judge_cost_usd") or 0 for result in grades)
-    print(f"Graded {len(rows)} sessions with {args.judge}; reported judge cost ${judge_cost:.2f}.")
+    source = "from saved grades" if args.from_grades else f"with {args.judge}"
+    print(f"Graded {len(rows)} sessions {source}; reported judge cost ${judge_cost:.2f}.")
 
 
 def run_sessions(args: argparse.Namespace) -> None:
@@ -998,6 +1017,7 @@ def main() -> None:
     sub.add_argument("--timeout", type=int, default=600)
     sub.add_argument("--retries", type=int, default=1, help="Ask the judge again when its reply breaks the rubric's rules.")
     sub.add_argument("--clean-config", action="store_true", help="Give every judge call a fresh, empty CLAUDE_CONFIG_DIR.")
+    sub.add_argument("--from-grades", action="store_true", help="Rebuild the result files from the run's grades.json; no judge calls.")
     sub = commands.add_parser("size")
     sub.add_argument("path", type=Path)
     sub = commands.add_parser("metrics")

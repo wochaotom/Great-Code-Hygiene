@@ -285,6 +285,7 @@ The holdout is not pristine: v1's holdout results shaped this design.
 | ID | Review | Severity | Finding | Disposition |
 | --- | --- | --- | --- | --- |
 | A-1 | Smoke test | major | A fresh `CLAUDE_CONFIG_DIR` removes only one user skill, while the platform's 28 skills and 3 built-in plugins remain. Its cold first turn missed the prompt cache, at twice v1's cost for the same Haiku fixture. | Amended before any comparison data. Both arms use the standard environment, and init fingerprints must match. |
+| M-2′ | Post-loop | minor | The implementer read the loop result before the confirmation guard. "If no issues are found, say so and name any test gaps or residual risk." left with Task Modes and has no other equivalent. | Restored verbatim before the confirmation guard, adding no new words. Size 6,514 to 6,586 bytes, 27.4 percent below the original. The confirmation guard passed at 7 of 12, and the final comparison runs on this text. |
 | R1′-1 | R1′ | blocking | LB10 was frozen sentence by sentence, so the loop could reshape the report. | Fixed: LB10 is one contiguous block. |
 | R1′-2 | R1′ | major | Instructions that carry PASS-100 categories were still unprotected; the attribution was wrong. | Fixed: LB29 to LB38 frozen (all 11 sentences R1′ listed), attribution corrected. |
 | R1′-3 | R1′ | major | The worst case overran the budget. | Fixed: driver 2 USD, loop guard stop at a 25.50 USD ledger total, reserves listed. |
@@ -300,4 +301,85 @@ The holdout is not pristine: v1's holdout results shaped this design.
 
 ## Results
 
-To be completed after the final comparison.
+Pending AC7 (CI) and AC8 (review R2′). AC1 to AC6 are met.
+
+### What changed
+
+Four autoresearch iterations, all kept:
+
+| Iteration | Change | Size after | Guard (strict) |
+| --- | --- | --- | --- |
+| 1 | Task Modes removed, frozen sentences moved | 8,257 | 9/12 |
+| 2 | When To Use removed | 7,618 | 6/12 |
+| 3 | Quick Start removed, frozen sentences moved | 7,127 | 6/12 |
+| 4 | Purpose folded into Hard Stops; duplicates dropped | 6,514 | 8/12 |
+
+- Every guard session resolved its fixture.
+- One original sentence was restored afterwards (M-2′).
+- The final text is 6,586 normalized bytes, 27.4 percent below 9,070. The
+  frontmatter is byte-identical, all 38 frozen rules are present, and there are
+  no new words. The report list is unchanged.
+
+Guards on the original: calibration 6/12 (A-1 smoke session first). On the final
+text, the fresh confirmation guard scored 7/12.
+
+### Final comparison
+
+80 sessions (Haiku and Opus once, Sonnet twice, on ten fixtures), run
+concurrently at 15:25 UTC and graded by the blind Opus judge.
+
+- The init fingerprints are identical across arms for every model.
+- Both Sonnet grading runs stopped at an auxiliary step after writing
+  `grades.json`: their two rounds put duplicate prompt ids into one result file.
+  `grade` now writes one result file per round, and `--from-grades` rebuilt them
+  without new judge calls.
+
+| Measure | Original | Candidate | Difference |
+| --- | --- | --- | --- |
+| PASS-100 Haiku (10 pairs) | 87.6 | 87.8 | +0.2 |
+| PASS-100 Sonnet (20 pairs) | 87.7 | 86.1 | -1.6 |
+| PASS-100 Opus (10 pairs) | 94.2 | 94.8 | +0.6 |
+| PASS-100 pooled (mean of models) | | | -0.3 (90% bootstrap -2.4 to +1.8) |
+| Holdout pooled | | | +1.3 |
+| Resolved | 40/40 | 40/40 | 0 |
+| Reproduced first, strict | 24/40 | 21/40 | -3 |
+| Reproduced first, strict, Sonnet | 7/20 | 4/20 | -3 |
+| First-turn tokens per session | | | -631 Haiku, -891 Sonnet, -892 Opus |
+| Cost ratio (pooled) | | | 0.980 |
+| Test-run ratio (strict) | | | 1.02 |
+| Turns ratio | | | 1.02 |
+| Final report characters ratio | | | 1.11 |
+| Cache-write tokens ratio | | | 0.95 |
+| Output tokens ratio | | | 1.08 |
+
+| AC | Verdict | Evidence |
+| --- | --- | --- |
+| AC1 | met | 27.4 percent smaller; frontmatter identical; folder holds only `SKILL.md`. |
+| AC2 | met | (a) 631, 891, and 892 fewer first-turn tokens; (b) cost ratio 0.980; (c) test-run ratio 1.02. |
+| AC3 | met | Pooled -0.3; models +0.2, -1.6, +0.6; bootstrap lower bound -2.4. |
+| AC4 | met | Holdout +1.3. |
+| AC5 | met | 40 against 40. |
+| AC6 | met | 21 against 24 (slack 5); Sonnet 4 against 7 (slack 4). |
+| AC7 | pending | Unit suite, package validation, mirror and candidate-copy equality, and fingerprints pass locally; CI pending. |
+| AC8 | pending | Review R2′. |
+
+### Notes
+
+- **Sonnet reproduce-first is the weakest signal.** Sonnet's strict count fell
+  from 7 to 4 of 20, inside the predeclared slack of 4, and its capped sessions
+  rose from 4 to 6. Its loose count barely moved (13 against 12), so the
+  difference is mostly in tests that actually ran before the first edit. With 20
+  sessions this is within noise; the spec states that AC6 has about 40 percent
+  power for a halved Sonnet rate.
+- **Cost.** Session cost fell 2 percent, close to the expected 1 to 2 percent,
+  and cache writes fell 5 percent. Final reports grew 11 percent and output
+  tokens 8 percent, with the same report list in both arms.
+- **Spend.** The ledger stands at 41.23 USD of 50:
+
+  | Item | Cost |
+  | --- | --- |
+  | v1 | 19.43 USD |
+  | Smoke and calibration | 1.12 USD |
+  | Loop (guards and driver) | 4.84 USD |
+  | Confirmation | 0.99 USD |
+  | Final sessions and judge | 14.84 USD |
