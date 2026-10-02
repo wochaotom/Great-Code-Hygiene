@@ -2,6 +2,20 @@
 
 Durable lessons promoted from scored target-dummy runs. Keep entries short, source-backed, and reusable outside the original target.
 
+## Contents
+
+Lessons below are in date order. Find one by topic here, then search for its title.
+
+- Security and attack surface: OWASP Juice Shop Codefix Loop; HYG-032 Path Traversal Fixture; Phase 1 Python Hardcoded Sensitive Constants; Phase 1 Python Caller-Controlled File Paths
+- Refactoring with characterization tests: Gilded Rose Refactoring Kata; Tennis Refactoring Kata; Trivia Legacy Refactoring Kata; Yatzy Refactoring Kata; Theatrical Players Refactoring Kata; Parrot Refactoring Kata; Supermarket Receipt Refactoring Kata
+- Test seams, hidden state, and placeholder tests: Racing Car Tire Pressure Kata; Racing Car Turn Ticket Kata; Racing Car Text Converter Kata; Racing Car Telemetry Kata; Racing Car Leaderboard Kata; Trip Service Python Kata; Trip Service JavaScript Kata; Trip Service C# Kata; Trip Service TypeScript Kata
+- API, protocol, and CLI contracts: Bowling Game Kata; Durable Contract Regression Tests
+- Config, runtime, and environment: HYG-083 Config Precedence Controls; Installed Runtime Skill Parity; Python Gate Interpreter Identity
+- Agent scope and destructive actions: Self-Hygiene Guardrails; Bounded Scratch Target Scope; Public Release Reachability Scrub
+- Package export: Claude Command Entrypoint; Claude Export Path Safety; Claude Package Format Separation
+- Validator and promotion-gate hardening: Source Audit Domain Validation; Honing Report Source Exactness; Honing Report Duplicate Source Rejection; PASS-100 Score Shape Validation; PASS-100 Top-Level Shape Validation; PASS-100 Invalid JSON Diagnostics; Honing Report Evidence Type Validation; Promotion Gate Validator Parity; Promotion Score Artifact Validation; PASS-100 Nested Category Shape Handling; Source Corpus Metadata Validation
+- Python training harnesses and static scans: Phase 0A Python Fixture Sweep; Python Runner Harness Consolidation; Python Target Batch Runner; Python Static Hygiene for Testless Legacy Targets; Python Static Syntax Compatibility Findings; Python Static Resource Management Findings; Python Static Top-Level Work Findings; Phase 1 Python Dependency Manifest Hygiene; Phase 1 Python Application File I/O Hygiene; Phase 1 Python Loop String Accumulation; Phase 1 Python Static Target Expansion; Phase 1 Python Hardwired Runtime Randomness; Phase 1 Python Class State Mutation
+
 ## 2026-04-28: OWASP Juice Shop Codefix Loop
 
 - Unsupported hidden routes: when a route or feature has no legitimate product requirement, prefer removing the exposed surface entirely over obfuscating it or adding a guard. Source basis: CISA secure-by-design systemic fixes, NIST SSDF vulnerability reduction, OWASP ASVS access-control verification.

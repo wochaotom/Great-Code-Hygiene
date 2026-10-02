@@ -154,7 +154,28 @@ class ReleaseContractTests(unittest.TestCase):
                 path.write_text(json.dumps(payload), encoding="utf-8")
             report = validate_package.validate(clean, False)
             self.assertFalse(report["valid"])
+            self.assertTrue(any("Claude marketplace must contain exactly the reviewed plugin entries" in error for error in report["errors"]), report["errors"])
             self.assertTrue(any("marketplace must contain exactly one" in error for error in report["errors"]), report["errors"])
+
+    def test_claude_marketplace_offers_function_only_edition(self) -> None:
+        marketplace = read_json(REPO_ROOT / ".claude-plugin" / "marketplace.json")
+        sources = {entry["name"]: entry["source"] for entry in marketplace["plugins"]}
+        self.assertEqual(sources, {"code-hygiene": "./code-hygiene", "code-hygiene-compounder": "./code-hygiene-compounder"})
+        self.assertFalse((REPO_ROOT / "code-hygiene" / ".claude-plugin").exists())
+
+    def test_claude_marketplace_rejects_function_only_source_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            clean = Path(temp) / "repo"
+            shutil.copytree(REPO_ROOT, clean, ignore=shutil.ignore_patterns(".git", ".fixture-work", "__pycache__", ".pytest_cache", "runs"))
+            path = clean / ".claude-plugin" / "marketplace.json"
+            payload = read_json(path)
+            for entry in payload["plugins"]:
+                if entry["name"] == "code-hygiene":
+                    entry["source"] = "./code-hygiene-skeleton"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            report = validate_package.validate(clean, False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(any("code-hygiene source must be ./code-hygiene" in error for error in report["errors"]), report["errors"])
 
     def test_package_parity_rejects_extra_distribution_wrapper_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

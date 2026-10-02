@@ -16,9 +16,11 @@ from internal.package_meta import SKILL_NAME
 from internal.package_meta import PACKAGE_DIRS
 from internal.evidence import unsafe_link
 
+# Claude.ai custom skill uploads cap descriptions at 200 characters, so the
+# upload copy carries this shorter description instead of the SKILL.md one.
 CLAUDE_SKILL_DESCRIPTION = (
-    "Improve, review, refactor, harden, test, and evaluate code hygiene with "
-    "PASS-100 scoring and source-grounded compounding."
+    "Scores and improves code hygiene with PASS-100 evals, source-grounded honing, and lesson "
+    "compounding. Use to evaluate or train coding behavior; also reviews, refactors, and hardens code."
 )
 PORTABLE_PROMPT_NAME = "code-hygiene-compounder-chat.md"
 EXPORT_MARKER = ".great-code-hygiene-export.json"

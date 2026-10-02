@@ -5,15 +5,15 @@
         "daily-hygiene",
         "routing"
       ],
-      "lines": 154,
+      "lines": 147,
       "path": "SKILL.md",
       "read_when": [
         "checking active workflow routing",
         "starting broad training or export work"
       ],
       "role": "active skill entrypoint and routing workflow",
-      "sha256": "a36fc0d5b6fdf4e3b9103a41711438a5c3ca4763b0483d24d192ba1067ea34d0",
-      "words": 1353
+      "sha256": "8a03e153db35fbc050056b9e40e83f7ed064c8dba0ebcaa28cc0f7fea708eafe",
+      "words": 1290
     },
     {
       "domains": [
@@ -26,8 +26,8 @@
         "ordinary code review, cleanup, hardening, or implementation"
       ],
       "role": "daily hygiene checklist",
-      "sha256": "36c006bd157c8a6793785dd7151d4c006573ed6e346b36126fa17e3a9da0e9b3",
-      "words": 350
+      "sha256": "119887e03b836e754918b895658995b16c65aac45c4bc43eb5e3857c1621165a",
+      "words": 366
     },
     {
       "domains": [
@@ -45,6 +45,20 @@
       "role": "PASS-100 scoring rubric",
       "sha256": "8267ad5546dd64b301be3a0cf1a54ca340d429662147a91be45321e57aad6362",
       "words": 700
+    },
+    {
+      "domains": [
+        "fixtures",
+        "matrix"
+      ],
+      "lines": 39,
+      "path": "references/automation-commands.md",
+      "read_when": [
+        "running PASS-100, fixture, matrix, promotion, or export scripts"
+      ],
+      "role": "script commands and gate rules",
+      "sha256": "195010993a48b8cb5010dfd1afdcf594d21a2ea64f5a82a8086277793ee94297",
+      "words": 353
     },
     {
       "domains": [
@@ -79,14 +93,14 @@
         "fixtures",
         "matrix"
       ],
-      "lines": 133,
+      "lines": 146,
       "path": "references/eval-prompts.md",
       "read_when": [
         "selecting PASS-100 prompts or checking fixture coverage"
       ],
       "role": "PASS-100 prompt suite",
-      "sha256": "0f57123065a6b5848c44ce8701e3b4c6ad10acb0c048447c84962775fe06cf3e",
-      "words": 1261
+      "sha256": "1af8c9a1c2f4460b3cf23e8f74dcf0556eb5840d7739ca25ab5bb7718df85251",
+      "words": 1335
     },
     {
       "domains": [
@@ -513,14 +527,14 @@
         "audit",
         "source"
       ],
-      "lines": 101,
+      "lines": 109,
       "path": "references/source-registry.md",
       "read_when": [
         "classifying or auditing sources"
       ],
       "role": "authoritative source registry",
-      "sha256": "9f2dccae0d661ef35cee150148f7a1de452e6ff4b9eb50872d4fe97840c504ec",
-      "words": 1270
+      "sha256": "8fa762b0b50ebd6c20d6a75c5f5cbb59a5b6e5980e4450f31d5b1bed76bd6871",
+      "words": 1323
     },
     {
       "domains": [
@@ -542,15 +556,15 @@
         "promotion",
         "training"
       ],
-      "lines": 268,
+      "lines": 282,
       "path": "references/training-lessons.md",
       "read_when": [
         "avoiding duplicate lessons",
         "checking prior promoted lessons"
       ],
       "role": "promoted compact lessons",
-      "sha256": "1edf845e57ca6d315c3b2042aea3e8776ce5bd2330a20240266b20a242294da5",
-      "words": 5228
+      "sha256": "70273809c55c89cd71b886721540fbebe51bbf7cfbbc237f24c2d7fe48623962",
+      "words": 5540
     }
   ],
   "generated_at": "1970-01-01T00:00:00+00:00",

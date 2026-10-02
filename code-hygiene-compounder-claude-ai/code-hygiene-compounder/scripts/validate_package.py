@@ -36,6 +36,9 @@ MARKETPLACE_NAME = 'great-code-hygiene'
 PLUGIN_NAME = 'code-hygiene-compounder'
 CODEX_PLUGIN_SOURCE = './plugins/code-hygiene-compounder'
 PLUGIN_SOURCE = './code-hygiene-compounder'
+CLEAN_PLUGIN_NAME = 'code-hygiene'
+CLEAN_PLUGIN_SOURCE = './code-hygiene'
+CLAUDE_MARKETPLACE_SOURCES = {CLEAN_PLUGIN_NAME: CLEAN_PLUGIN_SOURCE, PLUGIN_NAME: PLUGIN_SOURCE}
 PLUGIN_REPOSITORY = 'https://github.com/wochaotom/Great-Code-Hygiene'
 MAX_RELATIVE_PATH_LENGTH = 140
 CODEX_MARKETPLACE_COMMAND = 'codex plugin marketplace add wochaotom/Great-Code-Hygiene'
@@ -220,18 +223,23 @@ def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None
     if marketplace is None or manifest is None:
         return
     plugins = marketplace.get('plugins')
-    matching = [item for item in plugins if isinstance(item, dict) and item.get('name') == PLUGIN_NAME] if isinstance(plugins, list) else []
+    entries = [item for item in plugins if isinstance(item, dict)] if isinstance(plugins, list) else []
+    names = sorted(str(item.get('name')) for item in entries)
     errors: list[str] = []
     owner = marketplace.get('owner')
     expect(errors, set(marketplace) != {'name', 'description', 'owner', 'plugins'}, 'marketplace has unreviewed fields')
     expect(errors, isinstance(owner, dict) and set(owner) != {'name'}, 'marketplace owner has unreviewed fields')
     expect(errors, marketplace.get('name') != MARKETPLACE_NAME, f'marketplace name must be {MARKETPLACE_NAME}')
     expect(errors, not isinstance(owner, dict) or not owner.get('name'), 'marketplace owner.name is required')
-    expect(errors, not isinstance(plugins, list) or len(plugins) != 1 or len(matching) != 1, f'marketplace must contain exactly one {PLUGIN_NAME} plugin entry')
-    if matching:
-        expect(errors, set(matching[0]) != {'name', 'version', 'source', 'description', 'author', 'repository', 'keywords'}, 'marketplace plugin has unreviewed fields')
-        expect(errors, matching[0].get('source') != PLUGIN_SOURCE, f'{PLUGIN_NAME} source must be {PLUGIN_SOURCE}')
-    expect(errors, any((isinstance(item, dict) and item.get('version') != PLUGIN_VERSION for item in matching)), f'marketplace plugin version must be {PLUGIN_VERSION}')
+    expect(errors, not isinstance(plugins, list) or len(entries) != len(plugins) or names != sorted(CLAUDE_MARKETPLACE_SOURCES), f"Claude marketplace must contain exactly the reviewed plugin entries: {', '.join(sorted(CLAUDE_MARKETPLACE_SOURCES))}")
+    for entry in entries:
+        name = entry.get('name')
+        if name not in CLAUDE_MARKETPLACE_SOURCES:
+            continue
+        expect(errors, set(entry) != {'name', 'version', 'source', 'description', 'author', 'repository', 'keywords'}, f'marketplace plugin {name} has unreviewed fields')
+        expect(errors, entry.get('source') != CLAUDE_MARKETPLACE_SOURCES[name], f'{name} source must be {CLAUDE_MARKETPLACE_SOURCES[name]}')
+        expect(errors, entry.get('version') != PLUGIN_VERSION, f'marketplace plugin version must be {PLUGIN_VERSION}')
+        expect(errors, entry.get('repository') != PLUGIN_REPOSITORY, f'marketplace plugin {name} repository must be {PLUGIN_REPOSITORY}')
     for key, value in {'name': PLUGIN_NAME, 'repository': PLUGIN_REPOSITORY, 'skills': ['./'], 'agents': []}.items():
         expect(errors, manifest.get(key) != value, f'plugin manifest {key} must be {value}')
     expect(errors, set(manifest) != {'name', 'version', 'description', 'author', 'repository', 'keywords', 'skills', 'agents'}, 'plugin manifest has unreviewed fields')
@@ -240,7 +248,7 @@ def check_claude_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None
     if errors:
         reporter.fail_check('Claude plugin marketplace', '; '.join(errors))
     else:
-        reporter.pass_check('Claude plugin marketplace', f'marketplace and plugin manifest share SemVer {PLUGIN_VERSION}')
+        reporter.pass_check('Claude plugin marketplace', f'marketplace lists {CLEAN_PLUGIN_NAME} and {PLUGIN_NAME} at SemVer {PLUGIN_VERSION}')
 def check_codex_plugin_marketplace(repo_root: Path, reporter: Reporter) -> None:
     marketplace_path = repo_root / '.agents' / 'plugins' / 'marketplace.json'
     manifest_path = repo_root / 'plugins' / PLUGIN_NAME / '.codex-plugin' / 'plugin.json'

@@ -89,7 +89,8 @@ Install [Node.js](https://nodejs.org/) first if `npx` is unavailable.
 
 - Clean and skeleton use: no Python dependency imposed by the skill.
 - Full trainer scripts and maintainer checks: Python 3.11 or newer.
-- Plugin marketplaces install the full trainer only.
+- The Claude Code plugin marketplace offers the clean edition and the full
+  trainer; the Codex plugin marketplace offers the full trainer only.
 
 ### Claude Code
 
@@ -144,27 +145,35 @@ npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene-skeleton
 
 ### Plugin Marketplaces
 
-The Claude Code and Codex marketplace packages install
-`code-hygiene-compounder`, including its training and package tools.
+The Claude Code marketplace offers two plugins: `code-hygiene`, the clean
+edition for everyday work, and `code-hygiene-compounder`, the full trainer with
+its training and package tools. Install `code-hygiene` unless you maintain or
+train the skill.
 
 Inside Claude Code:
 
 ```text
 /plugin marketplace add wochaotom/Great-Code-Hygiene
-/plugin install code-hygiene-compounder@great-code-hygiene
+/plugin install code-hygiene@great-code-hygiene
 /reload-plugins
 ```
 
-With the Codex CLI:
+For the full trainer, install `code-hygiene-compounder` instead:
+
+```text
+/plugin install code-hygiene-compounder@great-code-hygiene
+```
+
+The Codex marketplace offers only `code-hygiene-compounder`. With the Codex CLI:
 
 ```bash
 codex plugin marketplace add wochaotom/Great-Code-Hygiene
 codex plugin add code-hygiene-compounder@great-code-hygiene
 ```
 
-Use the `npx skills` path when you want the clean edition or skeleton. Update,
-uninstall, manual-copy, and Windows long-path instructions live in the
-[Power User Guide](docs/power-users.md).
+Use the `npx skills` path for the skeleton, or for the clean edition outside
+Claude Code. Update, uninstall, manual-copy, and Windows long-path instructions
+live in the [Power User Guide](docs/power-users.md).
 
 ### ChatGPT, Claude, and Gemini
 

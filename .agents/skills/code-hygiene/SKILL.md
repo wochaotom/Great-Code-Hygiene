@@ -1,6 +1,8 @@
 ---
 name: code-hygiene
-description: Function-only code hygiene workflow for code review, cleanup, hardening, bug fixing, refactoring, package checks, and verification evidence. Use when the user wants Great Code Hygiene behavior without PASS-100 training, source-grounded honing, self-mutation, promotion loops, or skill evolution.
+description: Function-only code hygiene workflow for code review, cleanup, hardening, bug fixing, refactoring, package checks, and verification evidence. Use when reviewing a PR, diff, or repo, debugging a failing test or regression, or making and verifying a code change. Does not run PASS-100 training, source-grounded honing, self-mutation, promotion loops, or skill evolution.
+metadata:
+  tested-with: "Claude Haiku, Sonnet, and Opus"
 ---
 
 # Code Hygiene
@@ -47,7 +49,18 @@ admission, fixture promotion, skill mutation, or compounding lessons.
 
 ## Hygiene Workflow
 
-Follow this loop on every code task.
+Follow this loop on every code task. For multi-step work, copy this checklist
+into your reply and tick it off:
+
+```
+Hygiene progress:
+- [ ] Ground: relevant code, tests, and conventions read
+- [ ] Feedback loop: symptom reproduced, or blocker named
+- [ ] Constrain: smallest change made
+- [ ] Harden: edge cases, security, and tests checked
+- [ ] Verify: targeted checks pass (on failure, return to Constrain)
+- [ ] Report: evidence report written
+```
 
 ### 1. Ground
 
@@ -111,6 +124,9 @@ Follow this loop on every code task.
   flow, or replay that proves the changed behavior.
 - Run broader checks for shared modules, public APIs, security-sensitive paths,
   config, packaging, migrations, generated schemas, or dependency changes.
+- If a check fails, return to Constrain, fix the cause, and re-run the same
+  check. Do not move to Report on a failing check unless you name it as a
+  blocker.
 - Treat failing or unavailable checks as evidence, not as noise. Report them
   plainly.
 - Do not claim complete, passing, fixed, safe, or ready without fresh tool

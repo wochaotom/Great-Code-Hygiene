@@ -8,7 +8,7 @@ Use this file for ordinary code review, refactor, cleanup, hardening, and implem
 2. **Loop:** for bugs, regressions, or flaky behavior, build the smallest deterministic feedback loop that reproduces the symptom before fixing; if no loop exists, state the attempted loops and the missing artifact or access.
 3. **Constrain:** make the smallest behavior-correct change; avoid unrelated rewrites, formatting churn, dependency noise, optional scratch/cache cleanup, and user-change reverts. If cleanup is required, resolve and constrain recursive-delete targets first.
 4. **Harden:** check correctness, tests, security/data safety, error handling, observability, compatibility, and local integration; for config precedence changes, include a winning-source test plus an absence/fallback control when the contract names multiple config sources.
-5. **Verify:** run the narrowest meaningful checks first, broaden when shared contracts or risky behavior changed, and report unrun checks.
+5. **Verify:** run the narrowest meaningful checks first, broaden when shared contracts or risky behavior changed, and report unrun checks. If a check fails, return to step 3, fix the cause, and re-run it before reporting.
 6. **Report:** include the evidence report from `evidence-report.md` before claiming completion or readiness.
 
 For package validation, fixture generation, matrix generation, exports, or context indexing changes, report runtime before and after when scale can be affected. Do not require timing gates for ordinary small code fixes.

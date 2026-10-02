@@ -19,7 +19,7 @@ Great Code Hygiene.
 | Codex skill install | Yes | Yes | Yes | Use `npx skills@latest add ... --agent codex`. |
 | Cursor skill install | Yes | Yes | Yes | Use `npx skills@latest add ... --agent cursor`. |
 | Antigravity skill install | Yes | Yes | Yes | Use `npx skills@latest add ... --agent antigravity`. |
-| Claude Code plugin marketplace | No | Yes | No | Plugin bundle installs `code-hygiene-compounder`. |
+| Claude Code plugin marketplace | Yes | Yes | No | Plugins `code-hygiene` and `code-hygiene-compounder`. |
 | Codex plugin marketplace | No | Yes | No | Plugin bundle installs `code-hygiene-compounder`. |
 | ChatGPT, Claude web, Gemini | Profile/prompt | Profile/prompt | Manual adaptation | Chatbots need files, connectors, or pasted context. |
 
@@ -60,6 +60,12 @@ codex plugin remove code-hygiene-compounder@great-code-hygiene
 claude plugin uninstall code-hygiene-compounder@great-code-hygiene
 ```
 
+Remove the clean plugin from Claude Code:
+
+```bash
+claude plugin uninstall code-hygiene@great-code-hygiene
+```
+
 After removing the plugin, remove the marketplace registration only when you no
 longer want any plugins from this repository:
 
@@ -68,9 +74,10 @@ codex plugin marketplace remove great-code-hygiene
 claude plugin marketplace remove great-code-hygiene
 ```
 
-Both clients report the installed plugin id as
-`code-hygiene-compounder@great-code-hygiene` and the configured marketplace
-name as `great-code-hygiene`. The removal commands use those persisted
+Both clients report the installed full trainer plugin id as
+`code-hygiene-compounder@great-code-hygiene`, Claude Code reports the clean
+plugin as `code-hygiene@great-code-hygiene`, and the configured marketplace
+name is `great-code-hygiene`. The removal commands use those persisted
 identifiers, not the capitalization of the GitHub repository slug.
 
 ## Manual Fallbacks
@@ -118,11 +125,13 @@ cp -R Great-Code-Hygiene/code-hygiene .agents/skills/code-hygiene
 | Shape | What it installs | Best for |
 | --- | --- | --- |
 | Skill install | One selected skill directory: `code-hygiene`, `code-hygiene-compounder`, or `code-hygiene-skeleton`. | Most users and normal coding-agent installs. |
-| Plugin install | A manifest-backed full trainer bundle named `code-hygiene-compounder`. | Maintainers, plugin marketplace testing, and users who explicitly want PASS-100/training tools. |
+| Plugin install | In Claude Code, `code-hygiene` (clean) or `code-hygiene-compounder` (full trainer). In Codex, `code-hygiene-compounder` only. | Claude Code users who prefer `/plugin`, maintainers, and users who explicitly want PASS-100/training tools. |
 
-The clean and skeleton editions are skills, not plugin bundles. The plugin
-bundle is heavier because it carries the full trainer, source-grounded audit
-tools, fixtures, package validation scripts, and context index.
+The clean Claude Code plugin is the `code-hygiene/` skill directory with no
+plugin manifest; its marketplace entry supplies the plugin metadata. The
+skeleton edition is a skill only. The full trainer plugin is heavier because it
+carries source-grounded audit tools, fixtures, package validation scripts, and
+the context index.
 
 ## Codex Plugin Config
 
@@ -156,7 +165,7 @@ enabled = true
 | Clean workflow | `code-hygiene/` | `.cursor/skills/code-hygiene/`, `.agents/skills/code-hygiene/` |
 | Skeleton template | `code-hygiene-skeleton/` | Installed only when selected with `--skill code-hygiene-skeleton` |
 | Full trainer skill | `code-hygiene-compounder/` | Claude AI package, Claude command package, Codex plugin skill copy |
-| Claude plugin manifest | `.claude-plugin/marketplace.json`, `code-hygiene-compounder/.claude-plugin/plugin.json` | None |
+| Claude plugin manifest | `.claude-plugin/marketplace.json` (both plugins), `code-hygiene-compounder/.claude-plugin/plugin.json` (full trainer) | None |
 | Codex plugin manifest | `.agents/plugins/marketplace.json`, `plugins/code-hygiene-compounder/.codex-plugin/plugin.json` | `plugins/code-hygiene-compounder/skills/code-hygiene-compounder/` |
 | Chat-only use | `chatbot-profiles/` and `portable-prompts/code-hygiene-compounder-chat.md` | Profile-specific custom instructions |
 
@@ -309,6 +318,35 @@ The trainer uses three complementary surfaces:
 
 Fixtures stay sparse. A new fixture or lesson needs a repeated measurable
 failure, independent evidence, or an admitted source-backed rule.
+
+### Model Coverage
+
+A skill's results depend on the model running it, so test each model you
+plan to use. The `code-hygiene` frontmatter records the Claude model families
+covered by the smoke check below.
+
+On 2026-10-02, a smoke check ran the `hyg-006-currency-rounding` and
+`hyg-083-config-precedence` fixtures through Claude Code on Claude Haiku,
+Sonnet, and Opus, with both Claude Code plugins installed. Each target was
+scored with `fixture_runner.py run`.
+
+| Run | Haiku | Sonnet | Opus |
+| --- | --- | --- | --- |
+| Fixtures fixed, no skill invoked | 2/2 | 2/2 | 2/2 |
+| Fixtures fixed with `/code-hygiene:code-hygiene` | 2/2 | 2/2 | 2/2 |
+| Protected test files edited | 0 | 0 | 0 |
+
+- No model loaded either skill on its own for these small fix requests. Invoke
+  `/code-hygiene:code-hygiene` when you need the workflow applied.
+- Without the skill, Sonnet and Opus each added a new test file for one
+  fixture. With the skill, no model added test files.
+- With the skill, Haiku copied the progress checklist into its report. Sonnet
+  and Opus reported what they changed, what they ran, and what they could not
+  check, in prose.
+
+This is a smoke check of two fixtures per model, not a PASS-100 run. It shows
+that the skill works on each model family; it does not measure score
+differences between models.
 
 ### Promotion and Overtraining Control
 

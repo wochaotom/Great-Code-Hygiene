@@ -1,13 +1,13 @@
 ---
 name: code-hygiene-compounder
-description: Auto-improving code hygiene workflow for Codex and Claude Code. Use when asked to improve, review, refactor, clean up, harden, test, or evaluate code quality; when running PASS-100 hygiene evaluations; when compounding lessons from coding/review failures into a stronger reusable skill; or when exporting the current Codex skill into a Claude Code package.
+description: Trainer edition of the code hygiene workflow that scores agent code work with PASS-100, hones it against authoritative sources, and compounds lessons from coding or review misses into the skill. Use when running PASS-100 or fixture evaluations, scoring or improving code hygiene behavior, auditing sources, promoting lessons, or exporting the skill packages. Also handles ordinary review, refactor, cleanup, hardening, and test work when the function-only code-hygiene skill is not installed.
 ---
 
 # Code Hygiene Compounder
 
 ## Quick Start
 
-Use this skill to make code changes safer, smaller, more testable, and easier to review. Treat the Codex skill as the source of truth; export Claude Code packages from the current Codex skill state when needed.
+Use this skill to make code changes safer, smaller, more testable, and easier to review. When the function-only `code-hygiene` skill is also installed, prefer it for ordinary code work and use this skill for training, scoring, and export.
 
 For ordinary coding or review work:
 1. Read `references/HYGIENE_QUICK.md`.
@@ -36,7 +36,18 @@ For training or evaluation:
 
 ## Hygiene Workflow
 
-Follow this loop on every code task:
+Follow this loop on every code task. For multi-step work, copy this checklist into your reply and tick it off:
+
+```
+Hygiene progress:
+- [ ] Ground: relevant code, tests, and conventions read
+- [ ] Feedback loop: symptom reproduced, or blocker named
+- [ ] Constrain: smallest change made
+- [ ] Harden: edge cases, security, and tests checked
+- [ ] Verify: targeted checks pass (on failure, return to Constrain)
+- [ ] Report: evidence report written
+- [ ] Compound: candidate lesson recorded, if any
+```
 
 1. **Ground**
    - Read relevant files, tests, types, manifests, and local patterns first.
@@ -64,6 +75,7 @@ Follow this loop on every code task:
 5. **Verify**
    - Run targeted tests first.
    - Run broader checks for shared modules, public APIs, security-sensitive changes, or migrations.
+   - If a check fails, return to Constrain, fix the cause, and re-run the same check. Do not move to Report on a failing check unless you name it as a blocker.
    - Report unrun checks and remaining risk plainly.
 
 6. **Report**
@@ -111,33 +123,14 @@ PASS-100 is the 100-point scorecard, not a fixed test count. Phase 0 starts with
 
 ## Automation Commands
 
-Use the bundled scripts with the active Python runtime:
+The scripts need Python 3.11 or newer and use only the standard library, so there is nothing to install. Run them from this skill's directory, since command paths are relative to it, and use `python3` where `python` is not on PATH. Execute the scripts rather than reading them; `references/automation-commands.md` lists every command, the gate rules, and what each script proves.
 
-```powershell
-python scripts/pass100_runner.py list --suite references/eval-prompts.md
-python scripts/pass100_runner.py batch --suite references/eval-prompts.md --mode smoke --out runs/smoke.json
-python scripts/validate_results.py --results runs/results.json --suite references/eval-prompts.md
-python scripts/pass100_runner.py score --results runs/results.json --out runs/score.json
-python scripts/analyze_runs.py --results runs/results.json --baseline runs/baseline-results.json --suite references/eval-prompts.md --out runs/analysis.json
-python scripts/guardrail_check.py --skill-root .
-python scripts/fixture_runner.py --fixtures fixtures list
-python scripts/fixture_runner.py --fixtures fixtures baseline
-python scripts/fixture_runner.py --fixtures fixtures prepare --fixture hyg-006-currency-rounding --target runs/fixtures/hyg-006-currency-rounding
-python scripts/fixture_runner.py --fixtures fixtures run --fixture hyg-006-currency-rounding --target runs/fixtures/hyg-006-currency-rounding
-python scripts/fixture_runner.py --fixtures fixtures snapshot --fixture hyg-006-currency-rounding --target runs/fixtures/hyg-006-currency-rounding --out runs/fixtures/hyg-006-target.zip
-python scripts/matrix_runner.py run --split all --loops 50 --variants-per-family 20 --work-root runs/matrix --out runs/matrix-50x.json
-python scripts/matrix_runner.py review --work-root runs/matrix-review --out runs/matrix-review.json
-python scripts/promote_candidate.py --current path/to/canonical-trainer --candidate path/to/candidate --evidence-bundle path/to/promotion-bundle.json
-python scripts/export_claude_package.py --skill-root . --out-dir path/to/export
-python scripts/export_claude_package.py --skill-root . --out-dir path/to/export --format claude-ai-skill --zip-name code-hygiene-compounder-claude-ai.zip
-python scripts/export_claude_package.py --skill-root . --out-dir path/to/export --format legacy-command --zip-name code-hygiene-compounder-command.zip
-```
-
-The scripts are deterministic gatekeepers. Run promotion commands from outside the `--current` canonical trainer directory; add `--apply --log path/to/promotion-audit.jsonl` only after all gates pass. Legacy `--score` calls are diagnostic only and cannot authorize `--apply`. A versioned bundle must contain matched external model executions, hashed outputs, verification, and independent review; see `references/compound-loop.md`. `validate_results.py` rejects malformed PASS-100 evidence before it enters the loop. `analyze_runs.py` computes comparable averages, confidence intervals, pass rates, and baseline deltas. `guardrail_check.py` keeps active instructions, lessons, sources, fixtures, and scripts inside anti-overtraining budgets. `fixture_runner.py` provides a small objective path for executable fixtures. `matrix_runner.py` generates larger scratch target matrices for target-quality validation, with train/holdout/all split selection and review-style visible/hidden contract checks; do not treat oracle-green matrix stats as model-execution proof. The agent still performs code review, eval execution, candidate lesson extraction, and skill editing unless the surrounding environment provides a model runner.
+Promotion is low freedom: run `scripts/promote_candidate.py` exactly as documented there, and add `--apply` only after every gate passes.
 
 ## References
 
 - `references/research-canon.md`: distilled research basis and source links.
+- `references/automation-commands.md`: every script command, gate rules, and what each script proves.
 - `references/context-index.json`: machine-readable router for selecting smaller reference reads.
 - `references/HYGIENE_QUICK.md`: short daily checklist for ordinary code work.
 - `references/evidence-report.md`: required lightweight report shape for code changes and reviews.

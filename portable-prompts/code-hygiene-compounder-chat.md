@@ -49,7 +49,7 @@ Use this file for ordinary code review, refactor, cleanup, hardening, and implem
 2. **Loop:** for bugs, regressions, or flaky behavior, build the smallest deterministic feedback loop that reproduces the symptom before fixing; if no loop exists, state the attempted loops and the missing artifact or access.
 3. **Constrain:** make the smallest behavior-correct change; avoid unrelated rewrites, formatting churn, dependency noise, optional scratch/cache cleanup, and user-change reverts. If cleanup is required, resolve and constrain recursive-delete targets first.
 4. **Harden:** check correctness, tests, security/data safety, error handling, observability, compatibility, and local integration; for config precedence changes, include a winning-source test plus an absence/fallback control when the contract names multiple config sources.
-5. **Verify:** run the narrowest meaningful checks first, broaden when shared contracts or risky behavior changed, and report unrun checks.
+5. **Verify:** run the narrowest meaningful checks first, broaden when shared contracts or risky behavior changed, and report unrun checks. If a check fails, return to step 3, fix the cause, and re-run it before reporting.
 6. **Report:** include the evidence report from `evidence-report.md` before claiming completion or readiness.
 
 For package validation, fixture generation, matrix generation, exports, or context indexing changes, report runtime before and after when scale can be affected. Do not require timing gates for ordinary small code fixes.
@@ -242,6 +242,20 @@ These are the distilled training targets from the source registry. Compound the 
 ## Training Lessons
 
 Durable lessons promoted from scored target-dummy runs. Keep entries short, source-backed, and reusable outside the original target.
+
+## Contents
+
+Lessons below are in date order. Find one by topic here, then search for its title.
+
+- Security and attack surface: OWASP Juice Shop Codefix Loop; HYG-032 Path Traversal Fixture; Phase 1 Python Hardcoded Sensitive Constants; Phase 1 Python Caller-Controlled File Paths
+- Refactoring with characterization tests: Gilded Rose Refactoring Kata; Tennis Refactoring Kata; Trivia Legacy Refactoring Kata; Yatzy Refactoring Kata; Theatrical Players Refactoring Kata; Parrot Refactoring Kata; Supermarket Receipt Refactoring Kata
+- Test seams, hidden state, and placeholder tests: Racing Car Tire Pressure Kata; Racing Car Turn Ticket Kata; Racing Car Text Converter Kata; Racing Car Telemetry Kata; Racing Car Leaderboard Kata; Trip Service Python Kata; Trip Service JavaScript Kata; Trip Service C# Kata; Trip Service TypeScript Kata
+- API, protocol, and CLI contracts: Bowling Game Kata; Durable Contract Regression Tests
+- Config, runtime, and environment: HYG-083 Config Precedence Controls; Installed Runtime Skill Parity; Python Gate Interpreter Identity
+- Agent scope and destructive actions: Self-Hygiene Guardrails; Bounded Scratch Target Scope; Public Release Reachability Scrub
+- Package export: Claude Command Entrypoint; Claude Export Path Safety; Claude Package Format Separation
+- Validator and promotion-gate hardening: Source Audit Domain Validation; Honing Report Source Exactness; Honing Report Duplicate Source Rejection; PASS-100 Score Shape Validation; PASS-100 Top-Level Shape Validation; PASS-100 Invalid JSON Diagnostics; Honing Report Evidence Type Validation; Promotion Gate Validator Parity; Promotion Score Artifact Validation; PASS-100 Nested Category Shape Handling; Source Corpus Metadata Validation
+- Python training harnesses and static scans: Phase 0A Python Fixture Sweep; Python Runner Harness Consolidation; Python Target Batch Runner; Python Static Hygiene for Testless Legacy Targets; Python Static Syntax Compatibility Findings; Python Static Resource Management Findings; Python Static Top-Level Work Findings; Phase 1 Python Dependency Manifest Hygiene; Phase 1 Python Application File I/O Hygiene; Phase 1 Python Loop String Accumulation; Phase 1 Python Static Target Expansion; Phase 1 Python Hardwired Runtime Randomness; Phase 1 Python Class State Mutation
 
 ## 2026-04-28: OWASP Juice Shop Codefix Loop
 

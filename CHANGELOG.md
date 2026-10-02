@@ -15,6 +15,12 @@ versions for plugin releases.
   archives, a read-only package doctor, and three-platform CI configuration.
 - Record the limits of retained historical promotion evidence without changing
   existing lessons or rewriting history.
+- Offer the clean `code-hygiene` edition as a Claude Code plugin alongside the
+  full trainer.
+- Follow Anthropic's skill authoring guidance: contents lists on long
+  reference files, a copyable progress checklist with a return-on-failure
+  step, sharper skill descriptions, trainer script commands moved to a
+  reference file, and recorded Claude model coverage.
 
 ## 0.2.0 - 2026-07-14
 
