@@ -1,7 +1,7 @@
 # Spec: Code Hygiene Token Diet
 
-Status: revised after review R1; thresholds frozen before any loop or final
-data. Owner: maintainers.
+Status: complete, not merged (AC2 and AC3 not met); thresholds were frozen
+before any loop or final data. Owner: maintainers.
 Machine-readable thresholds: [`code-hygiene-token-diet.json`](code-hygiene-token-diet.json).
 
 ## Contents
@@ -310,8 +310,108 @@ Limits stated up front:
 | R1-10 | R1 | minor | Ambiguous definitions. | Fixed in Metrics, Loop Rules, and AC3. |
 | R1-11 | R1 | minor | Size trim and hash input undefined; bytes are not tokens. | Fixed: both defined, hash recomputed; token usage reported; new-word check limits abbreviations. |
 | M-1 | Phase 2 | major | Implementing the metric showed two definition gaps. Script writes (`python - <<EOF`) went undetected, and a test plus a write in one call counted as reproducing. | Fixed before any loop data. The definition counts per call and detects script writes. The tool reproduces the earlier hand counts within 1 per cell, and the train baseline is 8/12. The guard thresholds move up by one under the same rule (pass at 7 or more, fail at 5 or less, second stage needs 14 of 24), keeping the R1-1 error rates. |
+| M-2 | Post-loop | major | The implementer read the loop result before the confirmation guard. The Task Modes cut dropped three original sentences that no frozen sentence covers: safe framework APIs for hardening, characterization tests when behavior is unclear, and what a review finding names. | Restored verbatim before the confirmation guard, adding no new words. Size 6,272 to 6,540 bytes, 27.9 percent below the original. The confirmation guard and final comparison ran on this text. |
 | R1-12 | R1 | minor | Text moved to new files; dispositions closing blockers; status; blinding. | Fixed: AC1 checks the folder; AC8 requires fixes; status updated; blinding limit stated in Metrics. |
 
 ## Results
 
-To be completed after the final comparison.
+Decision: **not merged**. AC2 and AC3 were not met. The thresholds were frozen
+before any data, and the spec allows one final round, so the effort stops here.
+
+### What changed on the branch
+
+- M1 report scaling.
+- Three autoresearch iterations, all kept:
+  1. drop When To Use and a Purpose sentence that repeats Hard Stops;
+  2. drop Task Modes;
+  3. drop Quick Start.
+- Three original sentences restored after the loop (M-2).
+- Normalized body: 9,070 bytes to 6,540 (27.9 percent smaller), frontmatter
+  byte-identical, every frozen sentence intact, no new words.
+
+Guards, every session resolved:
+
+| Run | Reproduced first |
+| --- | --- |
+| Calibration on the original | 8/12 |
+| M1 base | 10/12 |
+| Loop iteration 1 | 8/12 |
+| Loop iteration 2 | 10/12 |
+| Loop iteration 3 | 7/12 |
+| Confirmation on the final text | 10/12 |
+
+### Final comparison
+
+30 paired sessions per arm (10 fixtures on Haiku, Sonnet, and Opus), run
+concurrently. Both arms invoked the skill explicitly from staged copies and were
+graded by the blind Opus judge.
+
+| Measure | Original | Candidate | Difference |
+| --- | --- | --- | --- |
+| PASS-100 Haiku | 87.1 | 89.4 | +2.3 |
+| PASS-100 Sonnet | 88.1 | 82.7 | -5.4 |
+| PASS-100 Opus | 94.7 | 95.0 | +0.4 |
+| PASS-100 pooled | 90.0 | 89.0 | -0.9 (90% bootstrap -2.7 to +0.8) |
+| Holdout pooled (12 pairs) | | | -1.8 |
+| Resolved | 30/30 | 30/30 | 0 |
+| Reproduced first | 23/30 | 25/30 | +2 (Sonnet 6 and 6) |
+| Session cost | 3.71 USD | 3.67 USD | ratio 0.988 |
+
+Ratios, candidate over original:
+
+| Measure | Ratio |
+| --- | --- |
+| Test runs | 1.11 |
+| Turns | 1.03 |
+| Final report characters | 1.13 |
+| Cache-write tokens | 0.96 |
+| Cache-read tokens | 1.05 |
+| Output tokens | 1.13 |
+
+| AC | Verdict | Evidence |
+| --- | --- | --- |
+| AC1 | met | 27.9 percent smaller; frontmatter identical; folder holds only `SKILL.md`. |
+| AC2 | not met | Cost ratio 0.988 against at most 0.95; test-run ratio 1.11 is above its floor. |
+| AC3 | not met | Pooled -0.9 and bootstrap lower bound -2.7 pass, but Sonnet -5.4 is below -4. |
+| AC4 | met | Holdout -1.8 against at least -3. |
+| AC5 | met | 30 against 30. |
+| AC6 | met | 25 against 23 pooled; Sonnet 6 against 6. |
+| AC7 | see the pull request | Unit suite and package validation pass locally; CI runs on the pull request. |
+| AC8 | see the Review Log | Review R2. |
+
+### Diagnosis
+
+These observations do not change the decision. They inform the next attempt.
+
+- **Cost.** The text cut saved about 4 percent of cache-write tokens, as
+  predicted. Reports grew 13 percent rather than shrinking, and output and
+  cache-read tokens grew with them. M1 did not shorten reports on these
+  fixtures, most of which touch security, config, or data and so require the
+  full field set. Session cost is dominated by the work itself, not by the
+  skill text.
+- **Sonnet.** The drop comes from three sessions that the judge capped at 72 for
+  patching before reproducing (hyg-032, hyg-083, hyg-096).
+  - The same original text scored Sonnet 82.7, with 4 capped sessions, in the
+    2026-10-02 baseline. In this run's original arm it scored 88.1, with 2
+    capped. The candidate scored 82.7, with 5 capped.
+  - The difference is within the original skill's own run-to-run spread. Ten
+    pairs cannot tell a real Sonnet regression from noise.
+  - Hypothesis for a next attempt: the loop removed two repetitions of the
+    reproduce-first instruction (Quick Start, and the Debug Or Fix mode).
+    Sonnet may need that repetition. Loop iteration 3, which removed Quick
+    Start, had the lowest guard count.
+- **Metric limit.** A test command that discovers zero tests (`python -m
+  unittest` at the repository root) counts as reproduced first. In one
+  candidate Sonnet session the judge correctly saw no failing test. A stricter
+  metric would require the output to show at least one test ran.
+- **Grading.** One judge reply in the original arm broke the cap rule, which
+  aborted that arm's first grading. `grade` now asks again once for such a
+  reply. The original arm was regraded in full under that rule, and the
+  candidate arm needed no retry.
+
+### Spend and time
+
+- Ledger total: 19.43 USD of the 50 USD cap. That covers guards, the loop
+  driver, both arms, and judging.
+- Wall-clock: about 45 minutes from the start of implementation to the final
+  comparison.

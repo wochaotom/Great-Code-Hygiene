@@ -441,6 +441,53 @@ shows the judge which setup it came from. `analyze_runs.py` marks the
 comparison diagnostic-only because there was no predeclared paired plan, so it
 is not promotion evidence under the trainer's gates.
 
+### Token Reduction Experiment
+
+[`docs/specs/code-hygiene-token-diet.md`](specs/code-hygiene-token-diet.md)
+records a spec-driven attempt to make `code-hygiene` cheaper without making it
+worse. It froze its acceptance criteria and load-bearing sentences before any
+data. An independent agent reviewed the spec before any work started.
+
+The text was shrunk two ways:
+
+- by hand, with M1, which scales the report to the size of the change;
+- by an [autoresearch](https://github.com/uditgoenka/autoresearch) loop that
+  ran under a behavioral guard.
+
+The result was 27.9 percent fewer normalized body bytes. It was **not merged**,
+for two reasons:
+
+- Session cost fell only 1.2 percent. Reports grew rather than shrinking, and
+  session cost is dominated by the work itself.
+- Sonnet's PASS-100 score fell 5.4 points, past the -4 limit, while pooled
+  quality held (-0.9).
+
+The Sonnet gap is within the original skill's own run-to-run spread, so ten
+pairs cannot settle it. The spec's Results section has the full numbers and a
+diagnosis.
+
+The tooling from that effort is reusable:
+
+```bash
+python tools/claude_model_check.py size code-hygiene/SKILL.md
+python tools/claude_model_check.py metrics --run ../hygiene-pass100
+python tools/claude_model_check.py guard --config docs/specs/code-hygiene-token-diet.json --base HEAD --ledger ../ledger.jsonl --budget-usd 20
+python tools/claude_model_check.py fixtures --setups invoked --skill-file ../original-SKILL.md --out ../arm-original --ledger ../ledger.jsonl --budget-usd 20
+python tools/claude_model_check.py compare --config docs/specs/code-hygiene-token-diet.json --original ../arm-original --candidate ../arm-candidate
+```
+
+- `size` prints the normalized body size: the bytes after the frontmatter,
+  whitespace collapsed.
+- `metrics` recomputes reproduced-first, test runs, and token usage from a run's
+  logs.
+- `guard` runs model-free checks first: the frontmatter hash, the change scope,
+  the step size, the frozen sentences, and new vocabulary. It then runs a
+  two-stage reproduce-first check on the train fixtures. Its exit codes are
+  0 pass, 1 behavioral fail, 2 static fail, 3 budget, and 4 infrastructure.
+- `compare` pairs two graded runs and evaluates the spec's criteria.
+- `--ledger` and `--budget-usd` record every session's cost and refuse work past
+  the cap.
+
 ### Promotion and Overtraining Control
 
 A candidate can be applied only through a v2 evidence bundle passed to

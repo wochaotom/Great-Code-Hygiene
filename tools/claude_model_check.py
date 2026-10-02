@@ -463,14 +463,24 @@ def grade_job(judge: str, row: dict, timeout: int, ledger: Ledger) -> dict:
         return {"error": f"{exc}; stderr: {completed.stderr.strip()[:200]}"}
 
 
+def grade_all(rows: list[dict], judge, jobs: int, retries: int) -> list[dict]:
+    """Grade every row; ask again, up to `retries` times, for a reply that breaks the rubric's rules."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        grades = list(pool.map(judge, rows))
+        for _ in range(retries):
+            failed = [index for index, result in enumerate(grades) if "error" in result]
+            for index, result in zip(failed, pool.map(judge, [rows[index] for index in failed])):
+                grades[index] = result
+    return grades
+
+
 def grade(args: argparse.Namespace) -> None:
     rows = json.loads((args.run / "results.json").read_text(encoding="utf-8"))
     rows = [row for row in rows if row.get("check") == "fixtures"]
     if not rows:
         raise SystemExit(f"no fixtures results in {args.run}")
     ledger = Ledger(args.ledger, args.budget_usd)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        grades = list(pool.map(lambda row: grade_job(args.judge, row, args.timeout, ledger), rows))
+    grades = grade_all(rows, lambda row: grade_job(args.judge, row, args.timeout, ledger), args.jobs, args.retries)
     failed = [(row["setup"], row["model"], row["case"], result["error"]) for row, result in zip(rows, grades) if "error" in result]
     if failed:
         raise SystemExit("judge failures:\n" + "\n".join(map(str, failed)))
@@ -865,6 +875,7 @@ def main() -> None:
     sub.add_argument("--judge", default="opus", help="Model alias or id for the blind PASS-100 judge.")
     sub.add_argument("--jobs", type=int, default=4)
     sub.add_argument("--timeout", type=int, default=600)
+    sub.add_argument("--retries", type=int, default=1, help="Ask the judge again when its reply breaks the rubric's rules.")
     sub = commands.add_parser("size")
     sub.add_argument("path", type=Path)
     sub = commands.add_parser("metrics")

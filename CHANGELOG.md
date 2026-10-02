@@ -33,6 +33,15 @@ versions for plugin releases.
   judge model.
 - Record a PASS-100 comparison of all ten fixtures with and without
   `code-hygiene` on Claude Haiku, Sonnet, and Opus.
+- Add `size`, `metrics`, `guard`, and `compare` to `tools/claude_model_check.py`.
+  Also add a cost ledger, `--skill-file` arms, and one judge retry for replies
+  that break the rubric's cap rule.
+- Freeze the load-bearing sentences and frontmatter of `code-hygiene/SKILL.md`
+  with `tests/test_code_hygiene_core_rules.py`.
+- Shorten `code-hygiene/SKILL.md` by 27.9 percent and scale its report to the
+  change (token-diet experiment). `docs/specs/code-hygiene-token-diet.md`
+  records the results, including the two acceptance criteria it missed: cost
+  per session and Sonnet quality.
 
 ## 0.2.0 - 2026-07-14
 

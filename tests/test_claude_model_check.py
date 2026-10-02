@@ -12,6 +12,7 @@ from claude_model_check import (  # noqa: E402
     Ledger,
     behavior_verdict,
     compare_arms,
+    grade_all,
     is_file_change,
     is_test_command,
     new_words,
@@ -220,6 +221,25 @@ class GuardTests(unittest.TestCase):
         broken = rows(8)
         broken[0] = {**broken[0], "completed": False, "error": "timed out"}
         self.assertEqual("infrastructure", behavior_verdict(broken, None, GUARD))
+
+
+class GradeAllTests(unittest.TestCase):
+    def test_invalid_judgement_is_requested_again_once(self) -> None:
+        calls: list[str] = []
+
+        def judge(row: dict) -> dict:
+            calls.append(row["case"])
+            if row["case"] == "flaky" and calls.count("flaky") == 1:
+                return {"error": "total 85 exceeds triggered cap 72"}
+            if row["case"] == "broken":
+                return {"error": "judge reply has no JSON object"}
+            return {"total": 90.0}
+
+        grades = grade_all([{"case": "ok"}, {"case": "flaky"}, {"case": "broken"}], judge, jobs=2, retries=1)
+        self.assertEqual([{"total": 90.0}, {"total": 90.0}, {"error": "judge reply has no JSON object"}], grades)
+        self.assertEqual(2, calls.count("flaky"))
+        self.assertEqual(2, calls.count("broken"))
+        self.assertEqual(1, calls.count("ok"))
 
 
 class LedgerTests(unittest.TestCase):
