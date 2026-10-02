@@ -1,6 +1,6 @@
 ---
 name: code-hygiene
-description: Function-only code hygiene workflow for code review, cleanup, hardening, bug fixing, refactoring, package checks, and verification evidence. Use when reviewing a PR, diff, or repo, debugging a failing test or regression, or making and verifying a code change. Does not run PASS-100 training, source-grounded honing, self-mutation, promotion loops, or skill evolution.
+description: Function-only code hygiene workflow for code review, cleanup, hardening, bug fixing, refactoring, package checks, and verification evidence. Use when reviewing a PR, diff, branch, or module before merge; fixing a bug, failing test, regression, or flaky test; refactoring or cleaning up code without changing behavior; hardening input handling, auth, paths, or config; or checking that a change actually works. Example requests include review this before I ship it; the tests are failing, fix them; clean this up; is this safe to expose. Does not run PASS-100 training, source-grounded honing, self-mutation, promotion loops, or skill evolution.
 metadata:
   tested-with: "Claude Haiku, Sonnet, and Opus"
 ---

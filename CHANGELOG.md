@@ -21,6 +21,8 @@ versions for plugin releases.
   reference files, a copyable progress checklist with a return-on-failure
   step, sharper skill descriptions, trainer script commands moved to a
   reference file, and recorded Claude model coverage.
+- Add measured trigger wording to the `code-hygiene` description and document
+  a `CLAUDE.md` line and explicit invocation for reliable skill loading.
 
 ## 0.2.0 - 2026-07-14
 

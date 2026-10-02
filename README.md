@@ -104,6 +104,19 @@ Restart Claude Code, then ask:
 Review this repo with Code Hygiene and report verification evidence.
 ```
 
+Claude decides from the skill's description whether to load it, and smaller
+models often skip it. To make it the default in a project, add this line to the
+project's `CLAUDE.md`:
+
+```text
+For code reviews, bug fixes, refactors, and hardening in this repo, use the code-hygiene skill.
+```
+
+To force it for one request, start the message with `/code-hygiene`, or with
+`/code-hygiene:code-hygiene` when you installed it as a plugin. The
+[Power User Guide](docs/power-users.md#skill-triggering) has the measured
+trigger rates.
+
 ### OpenAI Codex
 
 ```bash

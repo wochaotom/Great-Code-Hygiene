@@ -346,7 +346,42 @@ scored with `fixture_runner.py run`.
 
 This is a smoke check of two fixtures per model, not a PASS-100 run. It shows
 that the skill works on each model family; it does not measure score
-differences between models.
+differences between models. It ran before the trigger wording below was added
+to the `code-hygiene` description.
+
+### Skill Triggering
+
+Claude sees only each skill's name and description until it decides to load
+one, so the description decides whether the workflow runs. On 2026-10-02, four
+requests that never name the skill ran on fixture repositories with both
+Claude Code plugins installed: a pre-ship review, failing tests, a cleanup
+refactor, and a "is this safe to expose" hardening question. Each cell counts
+runs that loaded `code-hygiene`, over two rounds.
+
+| Setup | Haiku | Sonnet | Opus | Total |
+| --- | --- | --- | --- | --- |
+| Earlier description | 1/8 | 0/8 | 6/8 | 7/24 |
+| Description plus trigger wording | 3/8 | 6/8 | 8/8 | 17/24 |
+| Earlier description plus a `CLAUDE.md` line | 5/8 | 8/8 | 8/8 | 21/24 |
+
+- The current `code-hygiene` description includes the tested trigger wording.
+  It sits in the description itself rather than Claude Code's `when_to_use`
+  field, which Claude Code appends to the description, so Codex, Cursor, and
+  Antigravity see it too.
+- The `CLAUDE.md` line was: `For code reviews, bug fixes, refactors, and
+  hardening in this repo, use the code-hygiene skill.` It is the most reliable
+  option short of invoking the skill by name.
+- `code-hygiene-compounder` never loaded for these everyday requests. In one
+  Haiku hardening run with the `CLAUDE.md` line, Haiku chose Claude Code's
+  built-in `security-review` skill instead.
+- Haiku stays the least likely to load a skill on its own. Invoke
+  `/code-hygiene` (or `/code-hygiene:code-hygiene` for the plugin) when the
+  workflow must run.
+
+A skill's `model` frontmatter field can run it on a different model than the
+session, and `context: fork` runs it as a separate subagent. Neither is set
+here: `code-hygiene` works inside the current conversation, and the checks above
+show it working on each model family.
 
 ### Promotion and Overtraining Control
 
