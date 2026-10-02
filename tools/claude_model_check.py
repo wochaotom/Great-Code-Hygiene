@@ -597,9 +597,12 @@ def grade_job(judge: str, row: dict, timeout: int, ledger: Ledger, clean: bool =
 
 
 def grade_all(rows: list[dict], judge, jobs: int, retries: int) -> list[dict]:
-    """Grade every row; ask again, up to `retries` times, for a reply that breaks the rubric's rules."""
+    """Grade every row; ask again, up to `retries` times, for a reply that breaks the rubric's rules.
+
+    The first row is graded alone so the judge's long rubric prompt is cached before parallel calls read it.
+    """
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
-        grades = list(pool.map(judge, rows))
+        grades = [judge(row) for row in rows[:1]] + list(pool.map(judge, rows[1:]))
         for _ in range(retries):
             failed = [index for index, result in enumerate(grades) if "error" in result]
             for index, result in zip(failed, pool.map(judge, [rows[index] for index in failed])):

@@ -124,7 +124,7 @@ unchanged text about 11 percent of the time.
 
 ## Loop Rules
 
-- The autoresearch classic loop runs on Opus with a driver budget of 2 USD,
+- The autoresearch classic loop runs on Opus with a driver budget of 1.50 USD,
   starting from tag `report-brevity-base`, which holds the current text.
 - Metric: report length, direction lower.
 - One change per iteration, inside the editable regions only. The driver is
@@ -137,7 +137,7 @@ unchanged text about 11 percent of the time.
   - 5 iterations;
   - 2 consecutive static rejections;
   - 3 consecutive behavioral rejections;
-  - ledger above 16 USD;
+  - ledger above 13 USD;
   - 22:45 UTC.
 
 ## Acceptance Criteria and Decision
@@ -183,13 +183,13 @@ The design accepts that and prefers a false no-merge to a false merge.
 
   | Item | Estimate |
   | --- | --- |
-  | Calibration | about 2 USD |
-  | Loop | about 1.9 USD per step plus a driver of at most 2 USD |
-  | Confirmation | about 2 USD |
-  | Final comparison (60 sessions plus judge) | about 11 USD |
+  | Calibration | 3.52 USD (actual) |
+  | Loop | about 2.1 USD per step plus a driver of at most 1.50 USD |
+  | Confirmation | about 2.1 USD |
+  | Final comparison (60 sessions plus judge) | about 13 USD |
 
-  Loop guards stop at a ledger total of 16 USD, which reserves the final
-  comparison and confirmation.
+  Loop guards stop at a ledger total of 13 USD, which reserves the final
+  comparison and confirmation (B-1).
 - Times (UTC):
   - loop ends by 22:45;
   - final comparison graded by 23:15;
@@ -200,6 +200,7 @@ The design accepts that and prefers a false no-merge to a false merge.
 
 | ID | Review | Severity | Finding | Disposition |
 | --- | --- | --- | --- | --- |
+| B-1 | Calibration | minor | Calibration cost 3.52 USD, not 2: six parallel judge calls each wrote the 20k-token rubric to the prompt cache (0.31 USD each, against 0.06 when it was read from the cache). | `grade_all` now grades one session first so later calls read the cache. Driver budget is 1.50 USD and the loop ledger stop is 13 USD, so the final comparison stays within the 30 USD cap. No quality threshold changed. |
 
 ## Results
 

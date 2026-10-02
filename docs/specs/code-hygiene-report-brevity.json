@@ -92,8 +92,8 @@
   "loop": {
     "target_reduction": 0.4,
     "max_iterations": 5,
-    "driver_budget_usd": 2,
-    "ledger_stop_usd": 16,
+    "driver_budget_usd": 1.5,
+    "ledger_stop_usd": 13,
     "deadline_utc": "2026-10-02T22:45:00Z"
   },
   "final": {
