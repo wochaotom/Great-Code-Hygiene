@@ -60,11 +60,17 @@ v1 also showed two things that shape this design:
    `Ran 0 tests`, import errors, and empty collections do not count. Test-run
    counts use the same rule. The v1 (loose) count is still recorded for
    comparison.
-3. **Clean configuration.** Every model session (fixtures, guard, judge) runs
-   with a fresh, empty `CLAUDE_CONFIG_DIR`. A one-session smoke test must show
-   two things before any other spend:
-   - the session authenticates;
-   - its init event lists only built-ins and the staged hygiene plugin.
+3. **Configuration (amended, A-1).** The plan was to give every session a fresh,
+   empty `CLAUDE_CONFIG_DIR`. A one-session smoke test showed two problems:
+   - It removed only one user-level skill. The other 28 skills and 4 built-in
+     plugins come from the platform and are identical in both arms with or
+     without it.
+   - It defeated cross-session prompt caching. The first turn wrote all 32.8k
+     prompt tokens to the cache instead of reading 26k from it, which roughly
+     doubled session cost.
+
+   v2 therefore runs both arms in the same standard environment, as v1 did. The
+   `--clean-config` option stays available in the tool.
 4. **More frozen sentences.** The frozen set is v1's 21 rules (with the report
    list) plus seven original sentences R2 found unprotected: LB22 to LB28.
 5. **More Sonnet data.** The final comparison runs Sonnet twice per fixture (20
@@ -121,7 +127,7 @@ The static checks are as in v1:
 - at most 5 words absent from the original.
 
 The behavioral check runs Haiku and Sonnet on the six train fixtures, one round
-(12 sessions, clean configuration, skill invoked explicitly), scored on the
+(12 sessions, skill invoked explicitly), scored on the
 strict count:
 
 - 2 or more unresolved sessions in a stage fail the guard;
@@ -144,8 +150,8 @@ these chances of passing:
 
 The expected cost is 1.3 single guard runs.
 
-Calibration: the original skill must pass the guard under the clean
-configuration before the loop starts; otherwise stop. After the loop, one fresh
+Calibration: the original skill must pass the guard before the loop starts;
+otherwise stop. After the loop, one fresh
 confirmation guard runs on the final text. On a failure, step back one kept
 change once; a second failure means no merge.
 
@@ -176,12 +182,12 @@ change once; a second failure means no merge.
 Final comparison:
 
 - Two arms: the original (`26d292d`) and the candidate. Both are invoked
-  explicitly from staged copies, under a clean configuration, with at most 40
-  turns and one retry for broken sessions.
+  explicitly from staged copies, with at most 40 turns and one retry for broken
+  sessions.
 - All ten fixtures: Haiku once, Sonnet twice, Opus once. That gives 40 pairs and
   80 sessions.
-- The arms run concurrently and are graded by the blind Opus judge under a clean
-  configuration, with one retry for a reply that breaks the cap rule.
+- The arms run concurrently in the same environment and are graded by the blind
+  Opus judge, with one retry for a reply that breaks the cap rule.
 
 | AC | Criterion |
 | --- | --- |
@@ -230,6 +236,7 @@ The design accepts that and prefers a false no-merge to a false merge.
 
 | ID | Review | Severity | Finding | Disposition |
 | --- | --- | --- | --- | --- |
+| A-1 | Smoke test | major | A clean `CLAUDE_CONFIG_DIR` isolates almost nothing: it removes 1 user skill, while 28 platform skills and 4 plugins remain. It also doubles session cost by defeating prompt caching (0.13 against 0.066 USD for the same Haiku fixture). | Amended before any comparison data. Both arms run in the same standard environment. The smoke session cost 0.13 USD. |
 
 ## Results
 

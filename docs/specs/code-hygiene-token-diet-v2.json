@@ -34,7 +34,7 @@
     ],
     "min_step_bytes": 32,
     "metric": "strict",
-    "clean_config": true,
+    "clean_config": false,
     "reproduced_first_pass_at": 6,
     "reproduced_first_fail_at": 3,
     "second_stage_pass_total": 10,
@@ -62,7 +62,7 @@
       "opus": 1
     },
     "max_turns": 40,
-    "clean_config": true,
+    "clean_config": false,
     "min_size_reduction": 0.25,
     "min_first_turn_token_saving": 400,
     "max_cost_ratio": 1.05,
