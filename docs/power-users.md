@@ -453,7 +453,7 @@ behavioral guard.
 - **v1** ([`specs/code-hygiene-token-diet.md`](specs/code-hygiene-token-diet.md))
   also scaled the report to the size of the change. It cut 27.9 percent of the
   text but was not merged. Cost per session barely moved, and Sonnet's score
-  fell 5.4 points. Review traced most of that to measurement:
+  fell 5.4 points. Review traced most of the Sonnet drop to measurement:
   - the report change shifted what the judge saw;
   - reproduce-first counted test runs that ran zero tests.
 - **v2** ([`specs/code-hygiene-token-diet-v2.md`](specs/code-hygiene-token-diet-v2.md))
@@ -503,7 +503,8 @@ python tools/claude_model_check.py compare --config docs/specs/code-hygiene-toke
 - `--ledger` and `--budget-usd` record every session's cost and refuse work past
   the cap.
 - `--clean-config` gives sessions an empty `CLAUDE_CONFIG_DIR`. It isolates only
-  user-level config, and it defeats prompt caching.
+  user-level config, and in the one session tried its cold first turn missed the
+  prompt cache, roughly doubling that session's cost.
 
 ### Promotion and Overtraining Control
 

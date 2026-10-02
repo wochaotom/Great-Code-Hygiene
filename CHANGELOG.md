@@ -53,7 +53,8 @@ versions for plugin releases.
   - 40 of 40 resolved;
   - cost ratio 0.98.
 
-  `docs/specs/code-hygiene-token-diet-v2.md` has the results.
+  Sonnet's strict reproduce-first count fell from 7 to 4 of 20, within the
+  predeclared slack. `docs/specs/code-hygiene-token-diet-v2.md` has the results.
   `docs/specs/code-hygiene-token-diet.md` records the first attempt, which was
   not adopted.
 
