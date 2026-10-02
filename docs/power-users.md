@@ -361,13 +361,14 @@ runs that loaded `code-hygiene`, over two rounds.
 | Setup | Haiku | Sonnet | Opus | Total |
 | --- | --- | --- | --- | --- |
 | Earlier description | 1/8 | 0/8 | 6/8 | 7/24 |
-| Description plus trigger wording | 3/8 | 6/8 | 8/8 | 17/24 |
+| Earlier description plus trigger wording in `when_to_use` | 3/8 | 6/8 | 8/8 | 17/24 |
 | Earlier description plus a `CLAUDE.md` line | 5/8 | 8/8 | 8/8 | 21/24 |
+| Current description, as shipped | 4/8 | 8/8 | 8/8 | 20/24 |
 
-- The current `code-hygiene` description includes the tested trigger wording.
-  It sits in the description itself rather than Claude Code's `when_to_use`
-  field, which Claude Code appends to the description, so Codex, Cursor, and
-  Antigravity see it too.
+- The current `code-hygiene` description includes the tested trigger wording,
+  and the last row was measured on that exact text. The wording sits in the
+  description itself rather than Claude Code's `when_to_use` field, which Claude
+  Code appends to the description, so Codex, Cursor, and Antigravity see it too.
 - The `CLAUDE.md` line was: `For code reviews, bug fixes, refactors, and
   hardening in this repo, use the code-hygiene skill.` It is the most reliable
   option short of invoking the skill by name.
