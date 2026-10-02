@@ -311,6 +311,13 @@ Limits stated up front:
 | R1-11 | R1 | minor | Size trim and hash input undefined; bytes are not tokens. | Fixed: both defined, hash recomputed; token usage reported; new-word check limits abbreviations. |
 | M-1 | Phase 2 | major | Implementing the metric showed two definition gaps. Script writes (`python - <<EOF`) went undetected, and a test plus a write in one call counted as reproducing. | Fixed before any loop data. The definition counts per call and detects script writes. The tool reproduces the earlier hand counts within 1 per cell, and the train baseline is 8/12. The guard thresholds move up by one under the same rule (pass at 7 or more, fail at 5 or less, second stage needs 14 of 24), keeping the R1-1 error rates. |
 | M-2 | Post-loop | major | The implementer read the loop result before the confirmation guard. The Task Modes cut dropped three original sentences that no frozen sentence covers: safe framework APIs for hardening, characterization tests when behavior is unclear, and what a review finding names. | Restored verbatim before the confirmation guard, adding no new words. Size 6,272 to 6,540 bytes, 27.9 percent below the original. The confirmation guard and final comparison ran on this text. |
+| R2-1 | R2 | major | The Sonnet diagnosis left out counter-evidence: two of three capped sessions matched the original's process; caps follow self-reported Feedback Loop text. | Fixed in Diagnosis; AC3 unchanged. |
+| R2-2 | R2 | major | The zero-test metric limit was understated. | Fixed in Diagnosis with R2's stricter recount; AC6 holds either way. |
+| R2-3 | R2 | major | M-2 listed only three dropped sentences; more were lost. | Fixed in Diagnosis ("Text lost beyond M-2"). |
+| R2-4 | R2 | minor | AC7 evidence wording. | Fixed; CI is green on all three OSes. |
+| R2-5 | R2 | minor | The aborted first grading's log was overwritten; judge ledger labels lack the arm name. | Accepted as a follow-up. Every judge cost is still in the ledger, and the total stays under the cap. |
+| R2-6 | R2 | minor | The branch mixes the rejected skill change with reusable tooling and docs. | Left for the owner, since this effort does not merge. Landing only the tooling and results means reverting the three `SKILL.md` copies. |
+| R2-7 | R2 | minor | Sessions inherited the parent Claude Code config; a broken line wrap in Purpose. | Both arms were equally affected. The wrap is left as evaluated, and normalized size is unaffected. A next attempt should use a clean `CLAUDE_CONFIG_DIR`. |
 | R1-12 | R1 | minor | Text moved to new files; dispositions closing blockers; status; blinding. | Fixed: AC1 checks the folder; AC8 requires fixes; status updated; blinding limit stated in Metrics. |
 
 ## Results
@@ -376,8 +383,8 @@ Ratios, candidate over original:
 | AC4 | met | Holdout -1.8 against at least -3. |
 | AC5 | met | 30 against 30. |
 | AC6 | met | 25 against 23 pooled; Sonnet 6 against 6. |
-| AC7 | see the pull request | Unit suite and package validation pass locally; CI runs on the pull request. |
-| AC8 | see the Review Log | Review R2. |
+| AC7 | met | Unit suite, package validation, and mirror equality pass locally. CI passes on Ubuntu, Windows, and macOS, including `--doctor` with Node 24. Locally `--doctor` fails only because the container has Node 22. |
+| AC8 | met | R2 reports no open blocking finding. Its findings and dispositions are in the Review Log. |
 
 ### Diagnosis
 
@@ -390,20 +397,55 @@ These observations do not change the decision. They inform the next attempt.
   full field set. Session cost is dominated by the work itself, not by the
   skill text.
 - **Sonnet.** The drop comes from three sessions that the judge capped at 72 for
-  patching before reproducing (hyg-032, hyg-083, hyg-096).
+  patching before reproducing: hyg-032, hyg-083, and hyg-096. R2 found that
+  only hyg-083 shows a real difference in behavior.
+  - In hyg-032 and hyg-096 the original arm also edited before running a test,
+    yet escaped the cap. In hyg-096 the two arms made the same seven calls.
+  - The caps followed what the final report admitted. M1 makes Feedback Loop
+    one of the four always-required fields. Sonnet wrote that field in 9 of 10
+    candidate reports, against 3 of 10 original reports, so the candidate's
+    reports more often stated that no failing test was run first.
+  - Cap application also varies elsewhere. Sonnet hyg-019 skipped reproduction
+    in both arms without a cap. Haiku hyg-019 was capped in both.
   - The same original text scored Sonnet 82.7, with 4 capped sessions, in the
     2026-10-02 baseline. In this run's original arm it scored 88.1, with 2
-    capped. The candidate scored 82.7, with 5 capped.
-  - The difference is within the original skill's own run-to-run spread. Ten
-    pairs cannot tell a real Sonnet regression from noise.
-  - Hypothesis for a next attempt: the loop removed two repetitions of the
-    reproduce-first instruction (Quick Start, and the Debug Or Fix mode).
-    Sonnet may need that repetition. Loop iteration 3, which removed Quick
-    Start, had the lowest guard count.
-- **Metric limit.** A test command that discovers zero tests (`python -m
-  unittest` at the repository root) counts as reproduced first. In one
-  candidate Sonnet session the judge correctly saw no failing test. A stricter
-  metric would require the output to show at least one test ran.
+    capped. The candidate scored 82.7, with 5 capped. The difference is within
+    the original skill's own run-to-run spread. Ten pairs cannot tell a real
+    Sonnet regression from noise.
+  - The likeliest causes are M1's more prominent Feedback Loop field and judge
+    variance. Losing the repeated reproduce-first instructions is a weaker
+    explanation. AC3 still stands as measured.
+- **Metric limit.** A test command counts as reproduced first even when no test
+  ran. Examples are `Ran 0 tests`, `No module named pytest`, or an
+  unimportable start directory.
+  - Before the first edit, such runs occurred in 6 final sessions: original
+    Sonnet 051 and 064; candidate Sonnet 006, 032, and 051; candidate Opus 019.
+    They also occurred in 2 sessions of every guard run.
+  - R2 recounted with the stricter rule that a test must actually run:
+
+    | Run | Metric count | Stricter count |
+    | --- | --- | --- |
+    | Final, original vs candidate | 23 vs 25 | 21 vs 21 |
+    | Final, Sonnet | 6 vs 6 | 4 vs 3 |
+    | Calibration | 8 | 6 |
+    | Loop iteration 3 | 7 | 5 |
+    | Confirmation | 10 | 8 |
+
+  - So the candidate's +2 is an artifact of the metric. Iteration 3 reached the
+    pass mark only through zero-test runs. AC6 holds under either count.
+  - A next attempt should require the test output to show at least one test ran
+    and re-derive the guard thresholds from that count.
+- **Text lost beyond M-2.** R2 found more original instructions that no longer
+  have an equivalent. None is a frozen rule.
+  - Removing dead code and stale docs only on local evidence.
+  - Stating the smallest viable change and the verification plan.
+  - Reporting assumptions.
+  - Patching only after the loop is understood or a blocker is named.
+  - Partly covered: respecting lockfiles and documented defaults; verifying
+    adjacent consumer commands; not reporting theoretical issues as confirmed.
+  - Iteration 3 also replaced the Feedback Loop step's own first bullet with the
+    LB1 sentence, so the debug path lost three reproduce-related sentences, not
+    one repetition.
 - **Grading.** One judge reply in the original arm broke the cap rule, which
   aborted that arm's first grading. `grade` now asks again once for such a
   reply. The original arm was regraded in full under that rule, and the
