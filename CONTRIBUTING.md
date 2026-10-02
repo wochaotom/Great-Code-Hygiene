@@ -10,15 +10,19 @@ and the full trainer require Python 3.11 or newer. The project otherwise uses
 the Python standard library and has no install step.
 
 Clone the repository, create a branch, and run the narrowest check relevant to
-your change. Before opening a pull request, run:
+your change. Before opening a pull request, clean bytecode and run:
 
 ```bash
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 python -B -m unittest discover -s tests -v
 python code-hygiene-compounder/scripts/validate_package.py --repo-root .
 python code-hygiene-compounder/scripts/guardrail_check.py --skill-root code-hygiene-compounder
 python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures validate --suite code-hygiene-compounder/references/eval-prompts.md
 python code-hygiene-compounder/scripts/fixture_runner.py --fixtures code-hygiene-compounder/fixtures baseline
 ```
+
+See [Development Guide](docs/DEVELOPMENT.md) for details on the bytecode
+requirement for security-validating imports.
 
 ## Source Of Truth
 
