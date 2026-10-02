@@ -88,10 +88,12 @@
       "Add or update tests when behavior changes, a bug can regress, a public contract moves, or the existing tests are placeholders."
     ],
     "LB10": [
+      "For implementation work, every report states:",
       "Feedback Loop: the reproduction or verification loop used, or why none was possible.",
       "Verification: exact commands/checks run and their results.",
       "Unrun Checks: checks not run and why.",
-      "Residual Risk: remaining uncertainty."
+      "Residual Risk: remaining uncertainty.",
+      "When the change touches security, config, persisted data, migrations, or more than one source file, also report:"
     ],
     "LB11": [
       "For reviews, lead with findings ordered by severity.",

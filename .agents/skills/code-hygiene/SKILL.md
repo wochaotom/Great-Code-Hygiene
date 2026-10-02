@@ -137,18 +137,22 @@ Hygiene progress:
 For reviews, lead with findings ordered by severity. Include file/line evidence
 when available, and distinguish confirmed bugs from plausible risks.
 
-For implementation work, report:
+For implementation work, every report states:
 
 - Feedback Loop: the reproduction or verification loop used, or why none was
   possible.
-- Change: what changed and why it stayed scoped.
 - Verification: exact commands/checks run and their results.
+- Unrun Checks: checks not run and why.
+- Residual Risk: remaining uncertainty.
+
+When the change touches security, config, persisted data, migrations, or more
+than one source file, also report:
+
+- Change: what changed and why it stayed scoped.
 - Correctness: behavior preserved or intentionally changed.
 - Security/Data: validation, secrets, auth/authz, injection, path, privacy, and
   dependency considerations when relevant.
 - Minimal Diff: unrelated churn avoided and user edits preserved.
-- Unrun Checks: checks not run and why.
-- Residual Risk: remaining uncertainty.
 
 ## Task Modes
 
