@@ -379,6 +379,20 @@ runs that loaded `code-hygiene`, over two rounds.
   `/code-hygiene` (or `/code-hygiene:code-hygiene` for the plugin) when the
   workflow must run.
 
+Re-run both checks after editing a description or when new models ship. The
+tool loads both plugins from your checkout with `--plugin-dir` and calls the
+models through your Claude Code login, so each run uses your Claude usage:
+
+```bash
+python tools/claude_model_check.py fixtures --out ../hygiene-model-check
+python tools/claude_model_check.py triggers --out ../hygiene-trigger-check --rounds 2
+```
+
+`fixtures` scores each target with `fixture_runner.py` and accepts `--setups
+none available invoked` to compare runs without the skill. Skills already
+enabled in your Claude Code config compete with these; point `CLAUDE_CONFIG_DIR`
+at a clean config to isolate a run.
+
 A skill's `model` frontmatter field can run it on a different model than the
 session, and `context: fork` runs it as a separate subagent. Neither is set
 here: `code-hygiene` works inside the current conversation, and the checks above

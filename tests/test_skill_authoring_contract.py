@@ -95,6 +95,22 @@ class SkillAuthoringContractTests(unittest.TestCase):
                 self.assertIn("Hygiene progress:", text)
                 self.assertIn("If a check fails, return to Constrain", text)
 
+    def test_every_surface_reruns_failed_checks_before_reporting(self) -> None:
+        surfaces = (
+            REPO_ROOT / "code-hygiene" / "SKILL.md",
+            TRAINER_ROOT / "SKILL.md",
+            REFERENCES / "HYGIENE_QUICK.md",
+            REPO_ROOT / ".cursor" / "rules" / "code-hygiene.mdc",
+            REPO_ROOT / "code-hygiene-compounder-command" / ".claude" / "commands" / "code-hygiene.md",
+            REPO_ROOT / "portable-prompts" / "code-hygiene-compounder-chat.md",
+            *sorted((REPO_ROOT / "chatbot-profiles").glob("*-instructions.md")),
+        )
+        for path in surfaces:
+            text = " ".join(path.read_text(encoding="utf-8").split())
+            with self.subTest(path=path.relative_to(REPO_ROOT).as_posix()):
+                self.assertIn("If a check fails", text)
+                self.assertIn("re-run", text)
+
 
 if __name__ == "__main__":
     unittest.main()

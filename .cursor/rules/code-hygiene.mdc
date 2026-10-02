@@ -22,7 +22,8 @@ up, harden, test, verify, or package code with Code Hygiene.
    churn, dependency noise, and speculative cleanup.
 5. Verify with the narrowest meaningful check first, then broaden only when
    shared behavior, public APIs, security/data, config, packaging, or migrations
-   warrant it.
+   warrant it. If a check fails, return to step 4, fix the cause, and re-run
+   the same check before reporting.
 6. Do not claim complete, passing, fixed, safe, or ready without fresh evidence.
 
 For the full reusable skill, use `.cursor/skills/code-hygiene/SKILL.md`.

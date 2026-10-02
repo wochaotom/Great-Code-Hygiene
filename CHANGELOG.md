@@ -23,6 +23,13 @@ versions for plugin releases.
   reference file, and recorded Claude model coverage.
 - Add measured trigger wording to the `code-hygiene` description and document
   a `CLAUDE.md` line and explicit invocation for reliable skill loading.
+- Add the return-on-failure step to the Cursor rule, chatbot profiles, and
+  legacy Claude command; document the `AGENTS.md` line for Codex.
+- Stop fixture runs from flagging Python bytecode caches as added test files,
+  and run fixture tests with a private bytecode cache so planted cache files
+  cannot replace protected tests.
+- Add `tools/claude_model_check.py` to re-run the cross-model fixture and
+  skill-trigger checks.
 
 ## 0.2.0 - 2026-07-14
 

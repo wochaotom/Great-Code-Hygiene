@@ -226,6 +226,34 @@ class FixtureOutcomeTests(unittest.TestCase):
             fixture = {"_fixture_root": str(root), "repo_dir": "baseline", "protected_files": ["tests/test_contract.py"]}
             self.assertTrue(protected_file_failures(fixture, target))
 
+    def test_bytecode_cache_is_ignored_and_never_executed(self) -> None:
+        import py_compile
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            baseline, target = root / "baseline", root / "target"
+            source = "import unittest\n\nclass Contract(unittest.TestCase):\n    def test_contract(self):\n        self.assertTrue(1 == {})\n"
+            for tree in (baseline, target):
+                (tree / "tests").mkdir(parents=True)
+                (tree / "tests" / "test_contract.py").write_text(source.format(1), encoding="utf-8")
+            # Plant bytecode for a failing test whose header matches the real source's size and mtime.
+            planted = root / "planted.py"
+            planted.write_text(source.format(0), encoding="utf-8")
+            real = target / "tests" / "test_contract.py"
+            os.utime(planted, (real.stat().st_atime, real.stat().st_mtime))
+            cache = target / "tests" / "__pycache__" / f"test_contract.{sys.implementation.cache_tag}.pyc"
+            py_compile.compile(str(planted), cfile=str(cache), doraise=True)
+            fixture = {
+                "_fixture_root": str(root),
+                "repo_dir": "baseline",
+                "protected_files": ["tests/test_contract.py"],
+                "test_command": ["{python}", "-m", "unittest", "discover", "-s", "tests"],
+            }
+
+            self.assertEqual([], protected_file_failures(fixture, target))
+            result = run_fixture_command(fixture, target, 30)
+            self.assertEqual(0, result["exit_code"], result)
+
     def test_malformed_node_events_are_rejected_without_crashing(self) -> None:
         for payload in ('null', '{"event":"test:summary","counts":[]}', '{"event":"test:fail","error_code":"ERR_ASSERTION"}\nCODE_HYGIENE_TEST_EVENT={"event":"test:summary","counts":{"tests":1}}'):
             with self.subTest(payload=payload):

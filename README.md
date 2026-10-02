@@ -129,11 +129,24 @@ Invoke it explicitly when you want to guarantee activation:
 $code-hygiene review this repo and report verification evidence.
 ```
 
+To make it the default in a project, add the same line used for Claude Code to
+the project's `AGENTS.md`, which Codex reads as project instructions:
+
+```text
+For code reviews, bug fixes, refactors, and hardening in this repo, use the code-hygiene skill.
+```
+
 ### Cursor
 
 ```bash
 npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene --agent cursor --global --yes
 ```
+
+For a project-level nudge, copy the repository's
+`.cursor/rules/code-hygiene.mdc` rule into the project's `.cursor/rules/`
+folder. Cursor offers the rule to the agent when a request matches its
+description; see the [Power User Guide](docs/power-users.md#manual-fallbacks)
+for the copy commands.
 
 ### Antigravity
 

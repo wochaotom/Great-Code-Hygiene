@@ -334,6 +334,8 @@ def run_fixture_command(item: dict, target: Path, timeout: int) -> dict:
         for name in ("NODE_OPTIONS", "NODE_PATH", "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT"):
             env.pop(name, None)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        # Read bytecode only from a private cache so planted tests/__pycache__ files never run.
+        env["PYTHONPYCACHEPREFIX"] = str(Path(report_dir) / "pycache")
         started = time.monotonic()
         try:
             completed = subprocess.run(
@@ -402,10 +404,12 @@ def protected_file_failures(item: dict, target: Path) -> list[dict]:
     root = Path(str(item["_fixture_root"])) / str(item["repo_dir"])
     failures: list[dict] = []
     def test_paths(tree: Path) -> set[str]:
+        # Running the tests writes __pycache__; the runner never reads it (PYTHONPYCACHEPREFIX).
         return {
             path.relative_to(tree).as_posix()
             for path in (tree / "tests").rglob("*")
-            if path.is_file() or path.is_symlink()
+            if (path.is_file() or path.is_symlink())
+            and "__pycache__" not in (part.casefold() for part in path.relative_to(tree).parts)
         }
 
     baseline_tests, candidate_tests = test_paths(root), test_paths(target)
