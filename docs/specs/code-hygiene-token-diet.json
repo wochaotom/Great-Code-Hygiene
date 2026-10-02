@@ -1,0 +1,143 @@
+{
+  "skill": "code-hygiene/SKILL.md",
+  "original_commit": "26d292dcfe2b1accb6fd0821434313eb6f7da382",
+  "frontmatter_sha256": "cd17072ee0fe4140cdf49f5892c3241c320a4c94ca9df87f465ab1dce67ab610",
+  "baseline_size": 9070,
+  "fixtures": {
+    "train": [
+      "hyg-006-currency-rounding",
+      "hyg-019-migration-forward-rollback",
+      "hyg-031-sql-injection",
+      "hyg-051-preserve-user-edits",
+      "hyg-062-js-retry-bounds",
+      "hyg-083-config-precedence"
+    ],
+    "holdout": [
+      "hyg-032-path-traversal",
+      "hyg-034-resource-authorization",
+      "hyg-064-secret-safe-logs",
+      "hyg-096-source-audit-http-domain"
+    ]
+  },
+  "guard": {
+    "models": [
+      "haiku",
+      "sonnet"
+    ],
+    "rounds": 1,
+    "max_turns": 40,
+    "scope": [
+      "code-hygiene/SKILL.md"
+    ],
+    "min_step_bytes": 32,
+    "reproduced_first_pass_at": 7,
+    "reproduced_first_fail_at": 5,
+    "second_stage_pass_total": 14,
+    "max_unresolved_per_stage": 1,
+    "max_new_words": 5
+  },
+  "final": {
+    "models": [
+      "haiku",
+      "sonnet",
+      "opus"
+    ],
+    "min_size_reduction": 0.25,
+    "max_cost_ratio": 0.95,
+    "min_pooled_delta": -1.5,
+    "min_model_delta": -4.0,
+    "min_bootstrap_lower": -4.5,
+    "bootstrap_confidence": 0.9,
+    "bootstrap_seed": 20261002,
+    "bootstrap_resamples": 10000,
+    "min_holdout_delta": -3.0,
+    "resolved_slack": 1,
+    "reproduced_first_slack": 3,
+    "min_test_runs_ratio": 0.8,
+    "sonnet_reproduced_first_slack": 2,
+    "max_turns": 40
+  },
+  "budget_usd": 50,
+  "load_bearing": {
+    "LB1": [
+      "For bugs, regressions, or flaky behavior, build the smallest deterministic feedback loop before fixing, or state why no loop is possible."
+    ],
+    "LB2": [
+      "If a check fails, return to Constrain, fix the cause, and re-run the same check."
+    ],
+    "LB3": [
+      "Hygiene progress: - [ ] Ground: relevant code, tests, and conventions read - [ ] Feedback loop: symptom reproduced, or blocker named - [ ] Constrain: smallest change made - [ ] Harden: edge cases, security, and tests checked - [ ] Verify: targeted checks pass (on failure, return to Constrain) - [ ] Report: evidence report written"
+    ],
+    "LB4": [
+      "Never revert unrelated user work."
+    ],
+    "LB5": [
+      "Do not claim complete, passing, fixed, safe, or ready without fresh tool output or a clearly stated blocker."
+    ],
+    "LB6": [
+      "Make the smallest behavior-correct change that satisfies the request.",
+      "Avoid opportunistic rewrites, formatting sweeps, dependency churn, broad search-and-replace, generated noise, and unrelated cleanup."
+    ],
+    "LB7": [
+      "Check behavior preservation, edge cases, input validation, authorization, secrets, path handling, injection risk, unsafe deserialization, privacy, and dependency risk when relevant."
+    ],
+    "LB8": [
+      "For config/default/precedence changes, test the intended winning source plus at least one absence or fallback control when the contract distinguishes defaults, files, environment variables, or overrides."
+    ],
+    "LB9": [
+      "Add or update tests when behavior changes, a bug can regress, a public contract moves, or the existing tests are placeholders."
+    ],
+    "LB10": [
+      "For implementation work, every report states:",
+      "Feedback Loop: the reproduction or verification loop used, or why none was possible.",
+      "Verification: exact commands/checks run and their results.",
+      "Unrun Checks: checks not run and why.",
+      "Residual Risk: remaining uncertainty.",
+      "When the change touches security, config, persisted data, migrations, or more than one source file, also report:"
+    ],
+    "LB11": [
+      "For reviews, lead with findings ordered by severity.",
+      "Include file/line evidence when available, and distinguish confirmed bugs from plausible risks."
+    ],
+    "LB12": [
+      "Before recursive deletion or moves, resolve the target path and prove it stays inside the intended directory."
+    ],
+    "LB13": [
+      "Do not invent command output, file contents, test results, links, versions, or line numbers."
+    ],
+    "LB14": [
+      "If the user explicitly asks for training, scoring, source-grounded honing, package export, or skill evolution, use `code-hygiene-compounder` instead.",
+      "Do not run training, PASS-100 promotion, source-grounded honing, fixture admission, source-pack admission, or skill self-mutation."
+    ],
+    "LB15": [
+      "Avoid replacing one silent failure with another.",
+      "Error paths need observable, useful behavior."
+    ],
+    "LB16": [
+      "Preserve public contracts, API shape, migrations, data formats, config precedence, and caller-owned mutable values unless the task explicitly changes them."
+    ],
+    "LB17": [
+      "Run broader checks for shared modules, public APIs, security-sensitive paths, config, packaging, migrations, generated schemas, or dependency changes."
+    ],
+    "LB18": [
+      "Add regression checks for the vulnerable path and at least one safe control when feasible."
+    ],
+    "LB19": [
+      "Do not patch symptoms from inspection alone when a deterministic loop is feasible."
+    ],
+    "LB20": [
+      "Check error handling, logging, retries, timeouts, observability, resource cleanup, concurrency, migration rollback, and compatibility when relevant."
+    ],
+    "LB21": [
+      "For explicitly bounded scratch, fixture, export, or subdirectory tasks, scope status, diff, and discovery commands to that target instead of letting parent repo state steer the work."
+    ]
+  },
+  "loop": {
+    "target_reduction": 0.3,
+    "max_iterations": 8,
+    "max_consecutive_behavioral_rejections": 3,
+    "max_consecutive_static_rejections": 2,
+    "spend_cap_usd": 22,
+    "deadline_utc": "2026-10-02T11:40:00Z"
+  }
+}

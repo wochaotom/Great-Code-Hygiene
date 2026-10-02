@@ -41,8 +41,15 @@ cache or passes an unclean state.
 ## Editing the Skill
 
 Edit `code-hygiene-compounder/SKILL.md` for changes to the trainer workflow and
-sources. Generated copies (`code-hygiene/SKILL.md`, plugin manifests) are kept
-in sync by the export machinery; do not hand-edit them.
+sources. Generated copies (plugin manifests and the exported trainer packages)
+are kept in sync by the export machinery; do not hand-edit them.
+
+The clean edition, `code-hygiene/SKILL.md`, is edited by hand. Copy it to
+`.agents/skills/code-hygiene/SKILL.md` and `.cursor/skills/code-hygiene/SKILL.md`
+after every change; `validate_package.py` fails when the three differ. Its
+load-bearing sentences and frontmatter are frozen by
+`docs/specs/code-hygiene-token-diet-v2.json` and checked by
+`tests/test_code_hygiene_core_rules.py`.
 
 Run regeneration and validation after editing the trainer:
 

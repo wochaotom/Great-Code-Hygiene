@@ -7,46 +7,6 @@ metadata:
 
 # Code Hygiene
 
-## Purpose
-
-Use this skill for ordinary code work: review, cleanup, refactor, hardening,
-bug fixing, tests, package checks, documentation cleanup, and verification
-evidence.
-
-This is the function-only edition. It should behave like the daily coding side
-of `code-hygiene-compounder`, but it must not train, score, promote, mutate
-itself, add source packs, run PASS-100, or evolve the skill. If the user
-explicitly asks for training, scoring, source-grounded honing, package export,
-or skill evolution, use `code-hygiene-compounder` instead.
-
-## Quick Start
-
-For every code task:
-
-1. Read repo instructions, relevant files, tests, manifests, and local patterns.
-2. Identify user edits and scope boundaries before editing.
-3. For bugs, regressions, or flaky behavior, build the smallest deterministic
-   feedback loop before fixing, or state why no loop is possible.
-4. State the smallest viable change and the verification plan.
-5. Patch narrowly, preserving unrelated user work and local conventions.
-6. Verify with the narrowest meaningful check first.
-7. Broaden checks only when risk warrants it.
-8. Report evidence, skipped checks, assumptions, and residual risk.
-
-## When To Use
-
-Use Code Hygiene when the user asks to:
-
-- Review a repo, PR, branch, diff, file, module, or implementation plan.
-- Debug a symptom, failing test, regression, flaky behavior, or production bug.
-- Fix, refactor, simplify, harden, clean up, or modernize code.
-- Add or repair tests, CLI checks, UI checks, fixtures, or local harnesses.
-- Check package readiness, install docs, manifests, config, CI, or release risk.
-- Verify that a change actually works and report the evidence.
-
-Do not use this clean skill for self-training, PASS-100 scoring, source-pack
-admission, fixture promotion, skill mutation, or compounding lessons.
-
 ## Hygiene Workflow
 
 Follow this loop on every code task. For multi-step work, copy this checklist
@@ -79,7 +39,7 @@ Hygiene progress:
 ### 2. Feedback Loop
 
 - For bugs, regressions, or flaky behavior, build the smallest deterministic
-  loop that reproduces or observes the symptom before fixing.
+  feedback loop before fixing, or state why no loop is possible.
 - Prefer a focused test, CLI/script harness, UI automation, replayed fixture,
   captured trace, reduced example, or exact failing command over inspection.
 - If no loop is possible, state what was tried and what artifact, access, or
@@ -88,10 +48,12 @@ Hygiene progress:
   failure or when the risk surface is larger than the initial symptom.
 - Do not patch symptoms from inspection alone when a deterministic loop is
   feasible.
+- Patch only after the loop is understood or after a concrete blocker is named.
 
 ### 3. Constrain
 
 - Make the smallest behavior-correct change that satisfies the request.
+- State the smallest viable change and the verification plan.
 - Avoid opportunistic rewrites, formatting sweeps, dependency churn, broad
   search-and-replace, generated noise, and unrelated cleanup.
 - Add an abstraction only when it removes real complexity, reduces meaningful
@@ -102,6 +64,9 @@ Hygiene progress:
 - Leave generated scratch/cache artifacts alone unless cleanup is required.
   Before recursive deletion or moves, resolve the target path and prove it stays
   inside the intended directory.
+- Prefer characterization tests or golden traces when behavior is unclear.
+- Remove dead code and stale docs only when the local evidence supports removal.
+- Respect lockfiles, manifests, generated files, and documented defaults.
 
 ### 4. Harden
 
@@ -117,6 +82,12 @@ Hygiene progress:
   contract moves, or the existing tests are placeholders.
 - Keep comments sparse and useful. Explain tricky business rules or non-obvious
   constraints; do not narrate obvious code.
+- Prefer framework-supported safe APIs over custom parsing or hand-rolled
+  security controls.
+- Add regression checks for the vulnerable path and at least one safe control
+  when feasible.
+- Avoid replacing one silent failure with another. Error paths need observable,
+  useful behavior.
 
 ### 5. Verify
 
@@ -124,6 +95,8 @@ Hygiene progress:
   flow, or replay that proves the changed behavior.
 - Run broader checks for shared modules, public APIs, security-sensitive paths,
   config, packaging, migrations, generated schemas, or dependency changes.
+- Verify adjacent consumer commands when package or config changes can affect
+  install, build, runtime, or export behavior.
 - If a check fails, return to Constrain, fix the cause, and re-run the same
   check. Do not move to Report on a failing check unless you name it as a
   blocker.
@@ -135,7 +108,11 @@ Hygiene progress:
 ### 6. Report
 
 For reviews, lead with findings ordered by severity. Include file/line evidence
-when available, and distinguish confirmed bugs from plausible risks.
+when available, and distinguish confirmed bugs from plausible risks. Each finding
+should name the behavior risk, affected path, evidence, and a practical fix
+direction. Do not report theoretical issues as confirmed without a code path or
+behavior path. If no issues are found, say so and name any test gaps or residual
+risk.
 
 For implementation work, report:
 
@@ -150,50 +127,7 @@ For implementation work, report:
 - Unrun Checks: checks not run and why.
 - Residual Risk: remaining uncertainty.
 
-## Task Modes
-
-### Review
-
-- Inspect the diff or requested scope before judging.
-- Findings come first, ordered by severity.
-- Each finding should name the behavior risk, affected path, evidence, and a
-  practical fix direction.
-- Do not report theoretical issues as confirmed without a code path or behavior
-  path.
-- If no issues are found, say so and name any test gaps or residual risk.
-
-### Debug Or Fix
-
-- Start from the symptom and the smallest deterministic feedback loop.
-- Patch only after the loop is understood or after a concrete blocker is named.
-- Verify the original symptom first, then broaden if shared behavior changed.
-- Avoid replacing one silent failure with another. Error paths need observable,
-  useful behavior.
-
-### Refactor Or Cleanup
-
-- Preserve behavior before improving shape.
-- Prefer characterization tests or golden traces when behavior is unclear.
-- Keep public API, serialization, config, and migration contracts stable unless
-  the user asked to change them.
-- Remove dead code and stale docs only when the local evidence supports removal.
-
-### Hardening
-
-- Treat security as design, not cleanup.
-- Prefer framework-supported safe APIs over custom parsing or hand-rolled
-  security controls.
-- Add regression checks for the vulnerable path and at least one safe control
-  when feasible.
-- Report residual risk for anything that depends on deployment config, external
-  services, or unavailable credentials.
-
-### Package Or Config
-
-- Respect lockfiles, manifests, generated files, and documented defaults.
-- Avoid broad dependency churn unless the task owns dependency updates.
-- Verify adjacent consumer commands when package or config changes can affect
-  install, build, runtime, or export behavior.
+Report evidence, skipped checks, assumptions, and residual risk.
 
 ## Tool And Access Limits
 
@@ -208,10 +142,7 @@ For implementation work, report:
 
 - Do not run training, PASS-100 promotion, source-grounded honing, fixture
   admission, source-pack admission, or skill self-mutation.
+- If the user explicitly asks for training, scoring, source-grounded honing,
+  package export, or skill evolution, use `code-hygiene-compounder` instead.
 - Do not edit this skill or package artifacts unless the user explicitly asks to
   maintain the skill package.
-- Do not claim completion, readiness, safety, or passing tests from stale output
-  or assumption.
-- Do not revert unrelated user changes.
-- Do not use broad rewrites, generated churn, or dependency changes to hide a
-  narrow fix.
