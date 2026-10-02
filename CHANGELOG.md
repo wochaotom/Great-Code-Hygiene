@@ -57,6 +57,11 @@ versions for plugin releases.
   predeclared slack. `docs/specs/code-hygiene-token-diet-v2.md` has the results.
   `docs/specs/code-hygiene-token-diet.md` records the first attempt, which was
   not adopted.
+- Add report-brevity tooling to `tools/claude_model_check.py`: `measure`
+  (judged sessions cached by text hash), `guard --measured`, edit-region and
+  anchor checks, report-content and total-text checks, and judge prompt-cache
+  warm-up. `docs/specs/code-hygiene-report-brevity.md` records a stopped
+  experiment; the skill text is unchanged.
 
 ## 0.2.0 - 2026-07-14
 

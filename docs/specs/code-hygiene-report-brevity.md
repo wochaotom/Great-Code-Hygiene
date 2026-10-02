@@ -1,7 +1,7 @@
 # Spec: Code Hygiene Report Brevity
 
-Status: revised after review R1. Thresholds are frozen; the only data so far is
-the calibration run of the current text (B-1). Owner: maintainers.
+Status: stopped after the loop; not merged. The owner chose to skip the final
+comparison (see Results). Owner: maintainers.
 Machine-readable thresholds:
 [`code-hygiene-report-brevity.json`](code-hygiene-report-brevity.json). Earlier
 efforts on the same skill: [`code-hygiene-token-diet.md`](code-hygiene-token-diet.md)
@@ -259,4 +259,57 @@ Two more limits:
 
 ## Results
 
-To be completed after the final comparison.
+Decision: **stopped after the loop, not merged**. `code-hygiene/SKILL.md` is
+unchanged; the candidate existed only in the loop worktree. The final comparison
+was skipped. In the loop, Sonnet's reports did not get shorter, so AC1's
+per-model rule (at most 0.85 for every model) would almost certainly have
+failed. The owner chose to save its cost (about 16 USD) rather than confirm a
+likely failure.
+
+### Loop
+
+Each measure ran 12 sessions (Haiku and Sonnet on the six train fixtures),
+judged blind. Every guard passed, and every session resolved its fixture.
+
+| Run | Report (pooled) | Haiku report, score | Sonnet report, score | Score | Doc+process | Total text | Content C1/C2/C3/C4 | Reproduced first | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Calibration (current text) | 1,196 | 1,455, 84.2 | 936, 88.1 | 86.2 | 7.96 | 1,707 | 8/12/4/7 | 6 | base |
+| 1: one-sentence report request | 965 (-19%) | 1,012, 93.3 | 917, 85.7 | 89.5 | 8.42 | 1,484 | 9/11/3/5 | 6 | kept |
+| 2: keep the checklist out of the final report | 933 (-3% vs kept) | 969, 93.8 | 897, 85.8 | 89.8 | 8.25 | 1,333 | 7/12/3/5 | 8 | discarded (below the 10 percent bar) |
+| 3: at most six short lines | 968 (no gain) | 898, 86.9 | 1,038, 83.6 | 85.2 | 7.75 | 1,444 | 12/12/7/9 | 4 | discarded |
+
+The kept change replaced the eight-field list and the summary sentence in the
+Report section with: "For implementation work, report in a few short lines: what
+changed, the feedback loop used, exact commands/checks run and their results,
+checks not run and why, assumptions, and residual risk."
+
+### Findings
+
+- **Sonnet's reports are already short.** They ran 900 to 1,040 characters
+  whatever the instructions said, so a per-model target of 15 percent is
+  infeasible for Sonnet. Haiku, and probably Opus, write the long reports.
+  Haiku fell 30 percent with the kept change.
+- **The required-content checks held.** No item fell more than 2 below the base,
+  and total assistant text fell with the report, so content was cut rather than
+  moved. Judge scores did not drop; Haiku rose. With 6 sessions per model these
+  are indications only.
+- **No help from extra rules.** Telling agents not to paste the checklist, or
+  capping reports at six lines, added nothing beyond the one-sentence request.
+- **Next attempt:**
+  - target Haiku and Opus;
+  - measure Opus in the loop;
+  - set per-model goals only where reports are long;
+  - keep the content and total-text checks.
+
+### Spend and time
+
+| Item | Cost |
+| --- | --- |
+| Calibration | 3.52 USD |
+| Three loop measures | 5.45 USD |
+| Driver | 0.69 USD |
+| Total | 9.67 USD of the 30 USD cap |
+
+The run went from 21:26 to 21:51 UTC. The tooling built for this effort stays:
+`measure`, `guard --measured`, the region and anchor checks, report-content and
+total-text checks, judge cache warm-up, and the new `compare` criteria.
