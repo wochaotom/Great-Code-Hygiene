@@ -86,7 +86,9 @@ PYTHON = re.compile(r"python(3(\.\d+)?)?(\.exe)?$")
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 WORD = re.compile(r"[a-z][a-z0-9]*")
 # A test runner's summary line showing that at least one test ran (unittest, pytest, node --test).
-RAN_TESTS = re.compile(r"\bRan [1-9]\d* tests?\b|\b[1-9]\d* (passed|failed)\b|\bcollected [1-9]\d* items?\b|^\s*[#ℹ]\s*tests [1-9]\d*", re.M)
+RAN_TESTS = re.compile(r"\bRan [1-9]\d* tests?\b|\b[1-9]\d* (passed|failed)\b|^\s*[#ℹ]\s*tests [1-9]\d*", re.M)
+# Output where the runner counted a test that never ran: an unimportable module or a collection error.
+NO_TESTS_RAN = re.compile(r"_FailedTest|Failed to import test module|Interrupted:|error during collection")
 # File writes from inline scripts (python - <<EOF, python -c, node -e), which shell parsing cannot see.
 SCRIPT_WRITE = re.compile(r"(?<!stdout)(?<!stderr)\.write\(|\.write_(text|bytes)\(|(writeFileSync|appendFileSync)\(|shutil\.(copy|move)")
 
@@ -216,7 +218,7 @@ def is_file_change(name: str, tool_input: dict, target: str) -> bool:
 
 def ran_tests(output: str) -> bool:
     """True when a test runner's output shows that at least one test ran."""
-    return bool(RAN_TESTS.search(output))
+    return bool(RAN_TESTS.search(output)) and not NO_TESTS_RAN.search(output)
 
 
 def is_test_call(call: tuple, strict: bool) -> bool:
@@ -285,6 +287,18 @@ def tool_calls_with_output(events: list[dict]) -> list[tuple[str, dict, str]]:
             for block in event.get("message", {}).get("content", []) if block.get("type") == "tool_use"]
 
 
+def init_fingerprint(events: list[dict]) -> str | None:
+    """Short hash of the session environment: model, Claude Code version, tools, skills, plugins, and MCP servers."""
+    init = next((event for event in events if event.get("type") == "system" and event.get("subtype") == "init"), None)
+    if init is None:
+        return None
+    names = lambda items: sorted(str(item.get("name", item)) if isinstance(item, dict) else str(item) for item in items or [])
+    environment = {"model": init.get("model"), "version": init.get("claude_code_version"), "tools": names(init.get("tools")),
+                   "skills": names(init.get("skills")), "plugins": names(init.get("plugins")),
+                   "mcp_servers": names(init.get("mcp_servers")), "permission_mode": init.get("permissionMode")}
+    return hashlib.sha256(json.dumps(environment, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
 def first_turn_tokens(events: list[dict]) -> int | None:
     """Context size of the first model call: input plus cache-write plus cache-read tokens."""
     for event in events:
@@ -315,6 +329,7 @@ def session_summary(stdout: str, error: str, target: str) -> dict:
         "test_runs": count_test_runs(calls, strict=True),
         "test_runs_loose": count_test_runs(calls),
         "first_turn_tokens": first_turn_tokens(events),
+        "init_fingerprint": init_fingerprint(events),
         "error": error if not result else "",
     }
 
@@ -517,7 +532,7 @@ def parse_judgement(text: str) -> dict:
     return {"categories": categories, "total": total, "rubric_flags": flags, "deductions": deductions}
 
 
-def grade_job(judge: str, row: dict, timeout: int, ledger: Ledger, clean: bool = False) -> dict:
+def grade_job(judge: str, row: dict, timeout: int, ledger: Ledger, clean: bool = False, run: str = "") -> dict:
     ledger.check(JUDGE_RESERVE_USD)
     env = claude_env(clean)
     try:
@@ -530,7 +545,7 @@ def grade_job(judge: str, row: dict, timeout: int, ledger: Ledger, clean: bool =
         if env is not None:
             shutil.rmtree(env["CLAUDE_CONFIG_DIR"], ignore_errors=True)
     reply = json.loads(completed.stdout) if completed.stdout.strip().startswith("{") else {}
-    ledger.add(f"judge {row['setup']} {row['model']} {row['case']} r{row['round']}", reply.get("total_cost_usd"))
+    ledger.add(f"judge {run} {row['setup']} {row['model']} {row['case']} r{row['round']}", reply.get("total_cost_usd"))
     try:
         return {**parse_judgement(reply.get("result", "")), "judge_cost_usd": reply.get("total_cost_usd")}
     except (ValueError, KeyError, TypeError) as exc:
@@ -551,10 +566,15 @@ def grade_all(rows: list[dict], judge, jobs: int, retries: int) -> list[dict]:
 def grade(args: argparse.Namespace) -> None:
     rows = json.loads((args.run / "results.json").read_text(encoding="utf-8"))
     rows = [row for row in rows if row.get("check") == "fixtures"]
+    broken = [(row["model"], row["case"], row["round"]) for row in rows if not row.get("target")]
+    if broken:
+        print(f"not graded, session never ran: {broken}")
+    rows = [row for row in rows if row.get("target")]
     if not rows:
         raise SystemExit(f"no fixtures results in {args.run}")
     ledger = Ledger(args.ledger, args.budget_usd)
-    grades = grade_all(rows, lambda row: grade_job(args.judge, row, args.timeout, ledger, args.clean_config), args.jobs, args.retries)
+    grades = grade_all(rows, lambda row: grade_job(args.judge, row, args.timeout, ledger, args.clean_config, args.run.name),
+                       args.jobs, args.retries)
     failed = [(row["setup"], row["model"], row["case"], result["error"]) for row, result in zip(rows, grades) if "error" in result]
     if failed:
         raise SystemExit("judge failures:\n" + "\n".join(map(str, failed)))
@@ -658,7 +678,7 @@ def run_plan(args: argparse.Namespace, job, plan: list[tuple], ledger: Ledger) -
                 row = job(args, model, case, setup, round_no)
             except (Exception, SystemExit) as exc:  # one broken session must not discard the others
                 row = failed_row(args.check, model, case, setup, round_no, f"{type(exc).__name__}: {exc}")
-            ledger.add(f"{args.check} {setup} {model} {case} r{round_no} a{attempt + 1}", row.get("cost_usd"))
+            ledger.add(f"{args.check} {args.out.name} {setup} {model} {case} r{round_no} a{attempt + 1}", row.get("cost_usd"))
             if row["completed"] and not row["error"]:
                 break
         return row
@@ -932,6 +952,9 @@ def compare(args: argparse.Namespace) -> None:
     if ungraded:
         raise SystemExit(f"rows without a grade: {ungraded}")
     result = compare_arms(original, candidate, spec["final"], spec["fixtures"]["holdout"])
+    result["init_fingerprints"] = {arm: {model: sorted({str(row.get("init_fingerprint")) for row in rows if row["model"] == model})
+                                         for model in sorted({row["model"] for row in rows})}
+                                   for arm, rows in (("original", original), ("candidate", candidate))}
     if args.original_skill and args.candidate_skill:
         before, after = args.original_skill.read_text(encoding="utf-8"), args.candidate_skill.read_text(encoding="utf-8")
         reduction = 1 - skill_size(after) / skill_size(before)

@@ -14,6 +14,7 @@ from claude_model_check import (  # noqa: E402
     claude_env,
     compare_arms,
     grade_all,
+    init_fingerprint,
     is_file_change,
     is_test_command,
     new_words,
@@ -168,11 +169,15 @@ class SessionSignalTests(unittest.TestCase):
 class StrictSignalTests(unittest.TestCase):
     def test_ran_tests_needs_a_nonzero_summary(self) -> None:
         for output in ("Ran 4 tests in 0.002s\n\nOK", "Ran 1 test in 0.001s\n\nFAILED (failures=1)", "3 passed in 0.10s",
-                       "1 failed, 2 passed in 0.2s", "collected 5 items", "# tests 3\n# pass 2", "\u2139 tests 4"):
+                       "1 failed, 2 passed in 0.2s", "# tests 3\n# pass 2", "\u2139 tests 4"):
             with self.subTest(output=output):
                 self.assertTrue(ran_tests(output))
         for output in ("Ran 0 tests in 0.000s\n\nOK", "/usr/bin/python: No module named pytest", "collected 0 items",
-                       "no tests ran in 0.01s", "ImportError: Start directory is not importable", "# tests 0", ""):
+                       "no tests ran in 0.01s", "ImportError: Start directory is not importable", "# tests 0", "",
+                       "collected 5 items",
+                       "ERROR: test_x (unittest.loader._FailedTest.test_x)\nRan 1 test in 0.000s\n\nFAILED (errors=1)",
+                       "ERROR: Failed to import test module: test_x\nRan 1 test in 0.001s",
+                       "collected 3 items / 1 error\nERROR tests/test_x.py\n!!! Interrupted: 1 error during collection !!!\n1 error in 0.1s"):
             with self.subTest(output=output):
                 self.assertFalse(ran_tests(output))
 
@@ -206,6 +211,17 @@ class StrictSignalTests(unittest.TestCase):
         self.assertTrue(summary["reproduced_first_loose"])
         self.assertEqual(1, summary["test_runs"])
         self.assertEqual(21003, summary["first_turn_tokens"])
+
+    def test_init_fingerprint_tracks_the_session_environment(self) -> None:
+        init = {"type": "system", "subtype": "init", "model": "claude-haiku", "claude_code_version": "2.1",
+                "tools": ["Bash", "Edit"], "skills": ["a", "code-hygiene:code-hygiene"], "mcp_servers": [],
+                "plugins": [{"name": "code-hygiene", "path": "/tmp/x"}], "permissionMode": "acceptEdits",
+                "session_id": "s1", "cwd": "/tmp/run-1"}
+        moved = {**init, "plugins": [{"name": "code-hygiene", "path": "/tmp/y"}], "cwd": "/tmp/run-2", "session_id": "s2",
+                 "tools": ["Edit", "Bash"]}
+        self.assertEqual(init_fingerprint([init]), init_fingerprint([moved]))
+        self.assertNotEqual(init_fingerprint([init]), init_fingerprint([{**init, "skills": ["a", "b", "code-hygiene:code-hygiene"]}]))
+        self.assertIsNone(init_fingerprint([]))
 
     def test_clean_env_uses_a_fresh_config_dir_and_keeps_auth(self) -> None:
         import os

@@ -46,9 +46,9 @@
     "max_iterations": 5,
     "max_consecutive_static_rejections": 2,
     "max_consecutive_behavioral_rejections": 3,
-    "ledger_stop_usd": 31.5,
-    "driver_budget_usd": 3,
-    "deadline_utc": "2026-10-02T16:20:00Z"
+    "ledger_stop_usd": 25.5,
+    "driver_budget_usd": 2,
+    "deadline_utc": "2026-10-02T16:00:00Z"
   },
   "final": {
     "models": [
@@ -76,7 +76,10 @@
     "min_holdout_delta": -3.0,
     "resolved_slack": 1,
     "reproduced_first_slack": 5,
-    "sonnet_reproduced_first_slack": 4
+    "sonnet_reproduced_first_slack": 4,
+    "metric": "strict",
+    "graded_by_utc": "2026-10-02T17:15:00Z",
+    "decision_by_utc": "2026-10-02T17:45:00Z"
   },
   "load_bearing": {
     "LB1": [
@@ -108,15 +111,7 @@
       "Add or update tests when behavior changes, a bug can regress, a public contract moves, or the existing tests are placeholders."
     ],
     "LB10": [
-      "For implementation work, report:",
-      "Feedback Loop: the reproduction or verification loop used, or why none was possible.",
-      "Change: what changed and why it stayed scoped.",
-      "Verification: exact commands/checks run and their results.",
-      "Correctness: behavior preserved or intentionally changed.",
-      "Security/Data: validation, secrets, auth/authz, injection, path, privacy, and dependency considerations when relevant.",
-      "Minimal Diff: unrelated churn avoided and user edits preserved.",
-      "Unrun Checks: checks not run and why.",
-      "Residual Risk: remaining uncertainty."
+      "For implementation work, report: - Feedback Loop: the reproduction or verification loop used, or why none was possible. - Change: what changed and why it stayed scoped. - Verification: exact commands/checks run and their results. - Correctness: behavior preserved or intentionally changed. - Security/Data: validation, secrets, auth/authz, injection, path, privacy, and dependency considerations when relevant. - Minimal Diff: unrelated churn avoided and user edits preserved. - Unrun Checks: checks not run and why. - Residual Risk: remaining uncertainty."
     ],
     "LB11": [
       "For reviews, lead with findings ordered by severity.",
@@ -174,6 +169,38 @@
     ],
     "LB28": [
       "Each finding should name the behavior risk, affected path, evidence, and a practical fix direction."
+    ],
+    "LB29": [
+      "Respect lockfiles, manifests, generated files, and documented defaults."
+    ],
+    "LB30": [
+      "Verify adjacent consumer commands when package or config changes can affect install, build, runtime, or export behavior."
+    ],
+    "LB31": [
+      "Do not report theoretical issues as confirmed without a code path or behavior path."
+    ],
+    "LB32": [
+      "Keep comments sparse and useful.",
+      "Explain tricky business rules or non-obvious constraints; do not narrate obvious code."
+    ],
+    "LB33": [
+      "Prefer a focused test, CLI/script harness, UI automation, replayed fixture, captured trace, reduced example, or exact failing command over inspection."
+    ],
+    "LB34": [
+      "Add an abstraction only when it removes real complexity, reduces meaningful duplication, or matches an established local pattern."
+    ],
+    "LB35": [
+      "Check repo instructions and conventions before inventing a new style."
+    ],
+    "LB36": [
+      "Prefer existing helpers, frameworks, parsers, APIs, and architecture seams."
+    ],
+    "LB37": [
+      "If no loop is possible, state what was tried and what artifact, access, or environment is missing."
+    ],
+    "LB38": [
+      "Treat failing or unavailable checks as evidence, not as noise.",
+      "Do not move to Report on a failing check unless you name it as a blocker."
     ]
   }
 }
