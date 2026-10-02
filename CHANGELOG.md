@@ -15,6 +15,24 @@ versions for plugin releases.
   archives, a read-only package doctor, and three-platform CI configuration.
 - Record the limits of retained historical promotion evidence without changing
   existing lessons or rewriting history.
+- Offer the clean `code-hygiene` edition as a Claude Code plugin alongside the
+  full trainer.
+- Follow Anthropic's skill authoring guidance: contents lists on long
+  reference files, a copyable progress checklist with a return-on-failure
+  step, sharper skill descriptions, trainer script commands moved to a
+  reference file, and recorded Claude model coverage.
+- Add measured trigger wording to the `code-hygiene` description and document
+  a `CLAUDE.md` line and explicit invocation for reliable skill loading.
+- Add the return-on-failure step to the Cursor rule, chatbot profiles, and
+  legacy Claude command; document the `AGENTS.md` line for Codex.
+- Stop fixture runs from flagging Python bytecode caches as added test files,
+  and run fixture tests with a private bytecode cache so planted cache files
+  cannot replace protected tests.
+- Add `tools/claude_model_check.py` to re-run the cross-model fixture and
+  skill-trigger checks and to grade fixture runs against PASS-100 with a blind
+  judge model.
+- Record a PASS-100 comparison of all ten fixtures with and without
+  `code-hygiene` on Claude Haiku, Sonnet, and Opus.
 
 ## 0.2.0 - 2026-07-14
 

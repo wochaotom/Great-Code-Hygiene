@@ -1,10 +1,25 @@
 {
   "name": "great-code-hygiene",
-  "description": "Code hygiene skills and packaging for Claude Code.",
+  "description": "Code hygiene skills for Claude Code: the everyday workflow and the PASS-100 trainer.",
   "owner": {
     "name": "Great Code Hygiene Maintainers"
   },
   "plugins": [
+    {
+      "name": "code-hygiene",
+      "version": "0.3.0",
+      "source": "./code-hygiene",
+      "description": "Everyday code hygiene workflow for review, debugging, refactoring, hardening, and verified changes, without training or self-modification.",
+      "author": {
+        "name": "Great Code Hygiene Maintainers"
+      },
+      "repository": "https://github.com/wochaotom/Great-Code-Hygiene",
+      "keywords": [
+        "code-hygiene",
+        "code-review",
+        "testing"
+      ]
+    },
     {
       "name": "code-hygiene-compounder",
       "version": "0.3.0",

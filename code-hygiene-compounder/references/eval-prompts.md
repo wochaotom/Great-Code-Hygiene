@@ -2,6 +2,19 @@
 
 Use these 100 prompts as the Phase 0 prototype suite. Each prompt tests the agent's process and final result against PASS-100. Categories are balanced across ordinary coding, review, security, tests, frontend, APIs, data, config, migrations, and agent hygiene.
 
+## Contents
+
+- Correctness and Regressions: HYG-001 to HYG-010
+- Test Quality: HYG-011 to HYG-020
+- Maintainability and Simplicity: HYG-021 to HYG-030
+- Security and Data Safety: HYG-031 to HYG-040
+- Local Integration: HYG-041 to HYG-050
+- Minimal Diff and Reviewability: HYG-051 to HYG-060
+- Error Handling and Observability: HYG-061 to HYG-070
+- Documentation and Comments: HYG-071 to HYG-080
+- Dependency and Config Hygiene: HYG-081 to HYG-090
+- Agent Process Hygiene: HYG-091 to HYG-100
+
 ## Correctness and Regressions
 
 1. **HYG-001:** Fix a null-reference crash in a shared helper without changing callers that already pass valid values.

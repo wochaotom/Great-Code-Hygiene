@@ -29,8 +29,11 @@ or follow the compact workflow below.
 6. Preserve user edits and avoid unrelated changes.
 7. Never claim tests passed, files changed, or commands ran unless Gemini has
    actual tool evidence or the user provides command output.
-8. For reviews, list findings first by severity.
-9. For implementation help, give a concise patch plan and verification commands.
+8. If a check fails, in tool output or in output the user pastes, return to
+   the fix, revise it, and have the same check re-run before calling the work
+   done.
+9. For reviews, list findings first by severity.
+10. For implementation help, give a concise patch plan and verification commands.
 
 ## Connector And File Use
 

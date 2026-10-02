@@ -76,7 +76,7 @@ DOMAIN_RULES = (
     (("training-lessons.md", "compound-loop.md", "overtraining-guardrails.md", "PASS-100.md"), ("training", "promotion", "guardrails")),
     (("source-registry.md", "source-weights.json", "source-grounded-honing.md", "source-packs/"), ("source", "audit")),
     (("evidence-report.md", "PASS-100.md"), ("evidence", "verification")),
-    (("eval-prompts.md", "fixtures", "matrix"), ("fixtures", "matrix")),
+    (("eval-prompts.md", "fixtures", "matrix", "automation-commands.md"), ("fixtures", "matrix")),
     (("HYGIENE_QUICK.md", "hygiene-principles.md", "SKILL.md"), ("daily-hygiene", "routing")),
 )
 ROLE_RULES = (
@@ -93,6 +93,7 @@ ROLE_RULES = (
     ("overtraining-guardrails.md", "anti-overtraining checks"),
     ("hygiene-principles.md", "distilled operational principles"),
     ("research-canon.md", "research basis summary"),
+    ("automation-commands.md", "script commands and gate rules"),
 )
 READ_WHEN_RULES = (
     ("SKILL.md", ("starting broad training or export work", "checking active workflow routing")),
@@ -106,6 +107,7 @@ READ_WHEN_RULES = (
     ("source-packs/", ("performing source-grounded scoring or honing",)),
     ("compound-loop.md", ("changing training, promotion, or compounding behavior",)),
     ("overtraining-guardrails.md", ("adding lessons, fixtures, sources, or training rules",)),
+    ("automation-commands.md", ("running PASS-100, fixture, matrix, promotion, or export scripts",)),
 )
 
 

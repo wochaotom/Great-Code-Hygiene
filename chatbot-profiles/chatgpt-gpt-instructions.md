@@ -29,9 +29,12 @@ available, ask the user to attach it or continue with the compact workflow below
 6. Preserve user edits and avoid unrelated rewrites.
 7. Do not claim file edits, test results, package exports, or runtime behavior
    without tool evidence or user-provided command output.
-8. For reviews, lead with findings ordered by severity and include file or
+8. If a check fails, in tool output or in output the user pastes, return to
+   the fix, revise it, and have the same check re-run before calling the work
+   done.
+9. For reviews, lead with findings ordered by severity and include file or
    symbol references where available.
-9. For implementation guidance, provide a minimal patch plan and verification
+10. For implementation guidance, provide a minimal patch plan and verification
    commands the user can run.
 
 ## Connector Use

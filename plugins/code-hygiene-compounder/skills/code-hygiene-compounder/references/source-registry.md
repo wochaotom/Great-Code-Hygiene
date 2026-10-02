@@ -2,6 +2,14 @@
 
 Phase R locks the authoritative source corpus before heavy training. The skill compounds against distilled principles from this registry, not against a growing pile of ad hoc advice.
 
+## Contents
+
+- Core Corpus: primary sources and how `source-weights.json` loads them
+- Conditional Core: sources that apply only when their condition matches
+- Evaluation Sources: sources for agent training and eval-loop design
+- Source Admission Rules: how a new source enters the corpus
+- Verified Source Links: official links for each source
+
 ## Core Corpus
 
 `source-weights.json` controls when each source pack is loaded. Only general code-health and test-feedback sources should be loaded for every audit. Security-heavy sources remain core authorities, but source-grounded audits should activate them explicitly for security-sensitive work instead of pulling them into every docs/readability task.

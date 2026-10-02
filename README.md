@@ -89,7 +89,8 @@ Install [Node.js](https://nodejs.org/) first if `npx` is unavailable.
 
 - Clean and skeleton use: no Python dependency imposed by the skill.
 - Full trainer scripts and maintainer checks: Python 3.11 or newer.
-- Plugin marketplaces install the full trainer only.
+- The Claude Code plugin marketplace offers the clean edition and the full
+  trainer; the Codex plugin marketplace offers the full trainer only.
 
 ### Claude Code
 
@@ -103,6 +104,19 @@ Restart Claude Code, then ask:
 Review this repo with Code Hygiene and report verification evidence.
 ```
 
+Claude decides from the skill's description whether to load it, and smaller
+models often skip it. To make it the default in a project, add this line to the
+project's `CLAUDE.md`:
+
+```text
+For code reviews, bug fixes, refactors, and hardening in this repo, use the code-hygiene skill.
+```
+
+To force it for one request, start the message with `/code-hygiene`, or with
+`/code-hygiene:code-hygiene` when you installed it as a plugin. The
+[Power User Guide](docs/power-users.md#skill-triggering) has the measured
+trigger rates.
+
 ### OpenAI Codex
 
 ```bash
@@ -115,11 +129,24 @@ Invoke it explicitly when you want to guarantee activation:
 $code-hygiene review this repo and report verification evidence.
 ```
 
+To make it the default in a project, add the same line used for Claude Code to
+the project's `AGENTS.md`, which Codex reads as project instructions:
+
+```text
+For code reviews, bug fixes, refactors, and hardening in this repo, use the code-hygiene skill.
+```
+
 ### Cursor
 
 ```bash
 npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene --agent cursor --global --yes
 ```
+
+For a project-level nudge, copy the repository's
+`.cursor/rules/code-hygiene.mdc` rule into the project's `.cursor/rules/`
+folder. Cursor offers the rule to the agent when a request matches its
+description; see the [Power User Guide](docs/power-users.md#manual-fallbacks)
+for the copy commands.
 
 ### Antigravity
 
@@ -144,27 +171,35 @@ npx skills@latest add wochaotom/Great-Code-Hygiene --skill code-hygiene-skeleton
 
 ### Plugin Marketplaces
 
-The Claude Code and Codex marketplace packages install
-`code-hygiene-compounder`, including its training and package tools.
+The Claude Code marketplace offers two plugins: `code-hygiene`, the clean
+edition for everyday work, and `code-hygiene-compounder`, the full trainer with
+its training and package tools. Install `code-hygiene` unless you maintain or
+train the skill.
 
 Inside Claude Code:
 
 ```text
 /plugin marketplace add wochaotom/Great-Code-Hygiene
-/plugin install code-hygiene-compounder@great-code-hygiene
+/plugin install code-hygiene@great-code-hygiene
 /reload-plugins
 ```
 
-With the Codex CLI:
+For the full trainer, install `code-hygiene-compounder` instead:
+
+```text
+/plugin install code-hygiene-compounder@great-code-hygiene
+```
+
+The Codex marketplace offers only `code-hygiene-compounder`. With the Codex CLI:
 
 ```bash
 codex plugin marketplace add wochaotom/Great-Code-Hygiene
 codex plugin add code-hygiene-compounder@great-code-hygiene
 ```
 
-Use the `npx skills` path when you want the clean edition or skeleton. Update,
-uninstall, manual-copy, and Windows long-path instructions live in the
-[Power User Guide](docs/power-users.md).
+Use the `npx skills` path for the skeleton, or for the clean edition outside
+Claude Code. Update, uninstall, manual-copy, and Windows long-path instructions
+live in the [Power User Guide](docs/power-users.md).
 
 ### ChatGPT, Claude, and Gemini
 

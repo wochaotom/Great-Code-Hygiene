@@ -16,9 +16,11 @@ from internal.package_meta import SKILL_NAME
 from internal.package_meta import PACKAGE_DIRS
 from internal.evidence import unsafe_link
 
+# Claude.ai custom skill uploads cap descriptions at 200 characters, so the
+# upload copy carries this shorter description instead of the SKILL.md one.
 CLAUDE_SKILL_DESCRIPTION = (
-    "Improve, review, refactor, harden, test, and evaluate code hygiene with "
-    "PASS-100 scoring and source-grounded compounding."
+    "Scores and improves code hygiene with PASS-100 evals, source-grounded honing, and lesson "
+    "compounding. Use to evaluate or train coding behavior; also reviews, refactors, and hardens code."
 )
 PORTABLE_PROMPT_NAME = "code-hygiene-compounder-chat.md"
 EXPORT_MARKER = ".great-code-hygiene-export.json"
@@ -44,7 +46,7 @@ Follow this hygiene loop:
 3. For bugs, regressions, or flaky behavior, build the smallest deterministic feedback loop that reproduces the symptom before fixing, or state what blocked that loop.
 4. Make the smallest behavior-correct change; avoid unrelated rewrites, formatting churn, and dependency changes.
 5. Check tests, security, error paths, observability, dependencies, and local conventions.
-6. Verify with meaningful commands and include the evidence report from `.claude/code-hygiene-compounder/references/evidence-report.md` before claiming completion.
+6. Verify with meaningful commands and include the evidence report from `.claude/code-hygiene-compounder/references/evidence-report.md` before claiming completion. If a check fails, return to step 4, fix the cause, and re-run the same check.
 7. Do not trust agent reports, generated summaries, or intermediate files as proof; inspect the final user-facing artifact and verification output.
 8. Score significant work with PASS-100 when requested or when compounding a lesson.
 9. For broad training or scoring work, use `.claude/code-hygiene-compounder/references/context-index.json` as a router for smaller reference reads, not as a replacement for required source packs.
