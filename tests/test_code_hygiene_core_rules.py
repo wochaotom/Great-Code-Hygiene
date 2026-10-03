@@ -1,4 +1,4 @@
-"""The load-bearing rules of code-hygiene/SKILL.md, frozen by docs/specs/code-hygiene-report-brevity.json."""
+"""The load-bearing rules of code-hygiene/SKILL.md, frozen by docs/specs/code-hygiene-delegation.json."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 from claude_model_check import frontmatter_sha256, missing_anchors, missing_rules, normalized_body, split_skill  # noqa: E402
 
-SPEC = json.loads((REPO_ROOT / "docs" / "specs" / "code-hygiene-report-brevity.json").read_text(encoding="utf-8"))
+SPEC = json.loads((REPO_ROOT / "docs" / "specs" / "code-hygiene-delegation.json").read_text(encoding="utf-8"))
 SKILL = (REPO_ROOT / SPEC["skill"]).read_text(encoding="utf-8")
 
 
