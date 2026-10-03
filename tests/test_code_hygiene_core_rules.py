@@ -1,4 +1,4 @@
-"""The load-bearing rules of code-hygiene/SKILL.md, frozen by docs/specs/code-hygiene-token-diet-v2.json."""
+"""The load-bearing rules of code-hygiene/SKILL.md, frozen by docs/specs/code-hygiene-report-brevity.json."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
-from claude_model_check import frontmatter_sha256, missing_rules, normalized_body, split_skill  # noqa: E402
+from claude_model_check import frontmatter_sha256, missing_anchors, missing_rules, normalized_body, split_skill  # noqa: E402
 
-SPEC = json.loads((REPO_ROOT / "docs" / "specs" / "code-hygiene-token-diet-v2.json").read_text(encoding="utf-8"))
+SPEC = json.loads((REPO_ROOT / "docs" / "specs" / "code-hygiene-report-brevity.json").read_text(encoding="utf-8"))
 SKILL = (REPO_ROOT / SPEC["skill"]).read_text(encoding="utf-8")
 
 
@@ -27,6 +27,12 @@ class CoreRuleTests(unittest.TestCase):
                 with self.subTest(rule=rule, sentence=sentence[:50]):
                     mutated = front + normalized_body(SKILL).replace(sentence, "")
                     self.assertEqual([rule], missing_rules(mutated, SPEC["load_bearing"]))
+
+    def test_report_keeps_its_required_content(self) -> None:
+        frozen = [sentence for sentences in SPEC["load_bearing"].values() for sentence in sentences]
+        for anchors in SPEC["anchors"]:
+            with self.subTest(region=anchors["region"][0]):
+                self.assertEqual([], missing_anchors(SKILL, anchors, strip=frozen))
 
     def test_frontmatter_is_unchanged(self) -> None:
         self.assertEqual(SPEC["frontmatter_sha256"], frontmatter_sha256(SKILL))
