@@ -1,6 +1,7 @@
 # Spec: Code Hygiene Delegation
 
-Status: revised after review R1; frozen before calibration. Owner: maintainers.
+Status: stopped after calibration; the skill text is unchanged (see Results).
+Owner: maintainers.
 Machine-readable thresholds:
 [`code-hygiene-delegation.json`](code-hygiene-delegation.json). Earlier efforts
 on the same skill: [`code-hygiene-token-diet-v2.md`](code-hygiene-token-diet-v2.md)
@@ -250,4 +251,64 @@ only the tooling and this record, with the skill text unchanged.
 
 ## Results
 
-Pending.
+Stopped after calibration under this spec's frozen rules. No loop ran, there
+was no final comparison, and `code-hygiene/SKILL.md` is unchanged.
+
+### Calibration
+
+Current skill (`c2f699d`), six train fixtures, one Opus session each, run
+04:07–04:12 UTC. Every session used Opus, Haiku, and Sonnet. No built-in or
+background agents were used.
+
+| Fixture | Resolved | Reproduced first | Brief complete | Re-verified | Session M | Cost (USD) |
+| --- | --- | --- | --- | --- | --- | --- |
+| hyg-006 currency rounding | yes | yes | no | yes | 0.5 | 0.32 |
+| hyg-019 migration | yes | yes | yes | yes | 1.0 | 0.30 |
+| hyg-031 SQL injection | yes | yes | yes | yes | 1.0 | 0.26 |
+| hyg-051 preserve user edits | yes | no | yes | no | 0.5 | 0.28 |
+| hyg-062 JS retry bounds | yes | yes | yes | yes | 1.0 | 0.33 |
+| hyg-083 config precedence | yes | yes | yes | yes | 1.0 | 0.34 |
+
+Totals:
+- base M 0.833;
+- delegated 6 of 6;
+- resolved 6 of 6;
+- strict reproduced first 5 of 6;
+- 1.82 USD, or 0.30 USD per session.
+
+### Decision
+
+Base M (0.833) is just below the 0.85 stop line, so the first stop rule did not
+fire. But no change can be kept:
+- the loop keeps a change only if M rises by at least 0.17;
+- from 0.833, the most M can rise is 0.167.
+
+A candidate would also need M of about 0.98 or more over 20 final sessions to
+meet AC1. Under the frozen rules the loop cannot produce a candidate, so the
+effort stops here. The thresholds were not changed after seeing the data.
+
+### Findings
+
+- **hyg-006 is a pattern miss, not a hygiene miss.** The implementer brief said
+  "verify and paste exact outputs" and "report the final file content
+  verbatim". B3 matches the singular "output", so "outputs" slipped through.
+  Fixing the plural would put base M at about 0.92.
+- **hyg-051 is a real miss.** After the Sonnet implementer's edit, Opus checked
+  file hashes and listed the files but did not re-run the tests itself. The
+  implementer's own test run was the only check after the change.
+- **Opus already follows the skill when it delegates.** Every implementer brief
+  limited the change to named files, protected tests and user files, and asked
+  for exact commands and full output back. The Haiku scout ran the tests before
+  any edit in 5 of 6 sessions.
+- **The harness is cheap enough for future use:** about 0.30 USD per session,
+  with Opus about 70 percent of the cost.
+
+### Spend and time
+
+| Item | Cost (USD) |
+| --- | --- |
+| Probe | 0.35 |
+| Calibration | 1.82 |
+| Total ledger | 2.18 of 40 |
+
+The R1 review ran in this session and is not counted in the ledger.

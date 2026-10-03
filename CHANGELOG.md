@@ -62,6 +62,17 @@ versions for plugin releases.
   anchor checks, report-content and total-text checks, and judge prompt-cache
   warm-up. `docs/specs/code-hygiene-report-brevity.md` records a stopped
   experiment; the skill text is unchanged.
+- Add an Opus-plus-subagents harness to `tools/claude_model_check.py`:
+  - `--delegate` with Haiku and Sonnet subagents;
+  - subagent brief signals and parent re-verification;
+  - the delegation metric, its guard, and compare criteria;
+  - hidden-pattern re-scoring;
+  - a judge action log that labels who made each call and keeps the start and
+    end of long logs.
+
+  `docs/specs/code-hygiene-delegation.md` records the check: with the current
+  skill, Opus already briefs and re-checks subagents in 5 of 6 sessions, so no
+  delegation rule was added.
 
 ## 0.2.0 - 2026-07-14
 

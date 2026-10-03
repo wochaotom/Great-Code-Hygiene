@@ -506,6 +506,37 @@ python tools/claude_model_check.py compare --config docs/specs/code-hygiene-toke
   user-level config, and in the one session tried its cold first turn missed the
   prompt cache, roughly doubling that session's cost.
 
+### Delegation Check
+
+[`specs/code-hygiene-delegation.md`](specs/code-hygiene-delegation.md) asked
+whether `code-hygiene` needs a delegation rule when Opus runs the session and
+hands work to Haiku and Sonnet subagents. Subagents do not see the parent's
+skill text, so the rules reach them only through the parent's brief.
+
+With the current skill, Opus delegated in 6 of 6 calibration sessions. All
+6 were resolved, and the delegation score was 0.833:
+- 5 of 6 implementer briefs asked for a scoped change with exact output back.
+  The sixth did too, but its plural "outputs" slipped past the frozen pattern.
+- In 5 of 6 sessions Opus re-ran the tests itself after the subagent's edit.
+
+That left less room than the spec's smallest keepable gain, so the effort
+stopped before the loop. The skill text is unchanged.
+
+```bash
+python tools/claude_model_check.py fixtures --setups invoked --models opus --delegate docs/specs/code-hygiene-delegation.json --out ../delegated --ledger ../ledger.jsonl --budget-usd 10
+python tools/claude_model_check.py measure --config docs/specs/code-hygiene-delegation.json --out-root ../delegation-measure --ledger ../ledger.jsonl --budget-usd 10
+```
+
+- `--delegate` adds the spec's `scout` (Haiku) and `implementer` (Sonnet)
+  subagents, the `Agent` tool, and one prompt line.
+- Each row gets a `delegation` record:
+  - the brief signals for every Agent call;
+  - whether Opus re-ran tests after the last subagent edit;
+  - built-in and background agent counts;
+  - the models used.
+- `compare --hidden-patterns` re-scores briefs with a held-back pattern set
+  whose hash the spec records.
+
 ### Promotion and Overtraining Control
 
 A candidate can be applied only through a v2 evidence bundle passed to
