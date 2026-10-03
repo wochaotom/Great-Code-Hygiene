@@ -662,9 +662,10 @@ class DelegationTests(unittest.TestCase):
     def test_claude_command_adds_agents_and_the_agent_tool(self, _executable) -> None:
         plain = claude_command("opus", 40, [])
         self.assertNotIn("--agents", plain)
-        command = claude_command("opus", 40, [], harness=DELEGATION_SPEC["harness"], agents_file=Path("/x/agents.json"))
+        agents_file = Path("/x/agents.json")
+        command = claude_command("opus", 40, [], harness=DELEGATION_SPEC["harness"], agents_file=agents_file)
         self.assertIn("Agent", command[command.index("--allowedTools") + 1].split())
-        self.assertEqual("/x/agents.json", command[command.index("--agents") + 1])
+        self.assertEqual(str(agents_file), command[command.index("--agents") + 1])
         self.assertIn("--forward-subagent-text", command)
 
     def test_delegation_verdict(self) -> None:
