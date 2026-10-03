@@ -5,18 +5,22 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from claude_model_check import (  # noqa: E402
     Ledger,
+    action_log,
     agent_calls,
+    clip,
     brief_signals,
     claude_command,
     delegation_metric,
     delegation_summary,
     delegation_verdict,
     parent_reverified,
+    rescore_delegation,
     behavior_verdict,
     brevity_verdict,
     claude_env,
@@ -239,6 +243,9 @@ class StrictSignalTests(unittest.TestCase):
         self.assertEqual(init_fingerprint([init]), init_fingerprint([moved]))
         self.assertNotEqual(init_fingerprint([init]), init_fingerprint([{**init, "skills": ["a", "b", "code-hygiene:code-hygiene"]}]))
         self.assertIsNone(init_fingerprint([]))
+        with_agents = {**init, "agents": ["scout", "implementer"]}
+        self.assertNotEqual(init_fingerprint([init]), init_fingerprint([with_agents]))
+        self.assertNotEqual(init_fingerprint([with_agents]), init_fingerprint([{**with_agents, "agents": ["scout"]}]))
 
     def test_clean_env_uses_a_fresh_config_dir_and_keeps_auth(self) -> None:
         import os
@@ -592,7 +599,8 @@ class DelegationTests(unittest.TestCase):
     def test_delegation_summary_and_metric(self) -> None:
         good = delegation_summary(delegated_session(GOOD_BRIEF), self.config)
         self.assertEqual({"delegated": True, "agent_calls": 2, "implementer_calls": 1, "brief_complete": True,
-                          "reverified": True, "m_score": 1.0}, {key: good[key] for key in good if key != "briefs"})
+                          "reverified": True, "m_score": 1.0, "other_agents": 0, "background_agents": 0},
+                         {key: good[key] for key in good if key != "briefs"})
         self.assertEqual("implementer", good["briefs"][1]["subagent_type"])
         weak = delegation_summary(delegated_session("Fix it.", parent_check_after=False), self.config)
         self.assertEqual((True, False, False, 0.0), (weak["delegated"], weak["brief_complete"], weak["reverified"], weak["m_score"]))
@@ -600,8 +608,49 @@ class DelegationTests(unittest.TestCase):
         self.assertEqual(0.5, half["m_score"])
         alone = delegation_summary([{"type": "result", "subtype": "success", "result": "done"}], self.config)
         self.assertEqual((False, False, 0.0), (alone["delegated"], alone["brief_complete"], alone["m_score"]))
-        rows = [{"delegation": good}, {"delegation": half}, {"error": "broke"}]
-        self.assertAlmostEqual(0.5, delegation_metric(rows))
+        rows = [{"delegation": good}, {"delegation": half}, {"delegation": alone}, {"error": "broke"}]
+        self.assertAlmostEqual(0.75, delegation_metric(rows))  # over delegating sessions only
+        self.assertEqual(0.0, delegation_metric([{"delegation": alone}]))
+
+    def test_rescore_with_other_patterns_reads_the_session_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            target = f"{folder}/targets/run-1"
+            Path(target).parent.mkdir()
+            Path(target + ".jsonl").write_text("\n".join(json.dumps(event) for event in delegated_session(GOOD_BRIEF)), encoding="utf-8")
+            rows = [{"target": target, "delegation": {"delegated": True, "m_score": 1.0}}, {"error": "broke"}]
+            strict = {**self.config, "brief": {"B2_scope": "never matches xyz", "B3_evidence": "verbatim"}}
+            rescored = rescore_delegation(rows, strict)
+        self.assertEqual(0.5, rescored[0]["delegation"]["m_score"])
+        self.assertEqual(1.0, rows[0]["delegation"]["m_score"])  # the input rows are not changed
+        self.assertNotIn("delegation", rescored[1])
+
+    def test_any_agent_that_edits_counts_as_an_implementer(self) -> None:
+        events = delegated_session("Fix it.")
+        events[next(i for i, e in enumerate(events) if e.get("message", {}).get("content", [{}])[0].get("id") == "a2")][
+            "message"]["content"][0]["input"]["subagent_type"] = "general-purpose"
+        summary = delegation_summary(events, self.config)
+        self.assertEqual((1, 1, False), (summary["implementer_calls"], summary["other_agents"], summary["brief_complete"]))
+
+    def test_reverified_after_a_later_read_only_review(self) -> None:
+        events = delegated_session(GOOD_BRIEF)
+        result = events.pop()
+        events += [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a3", "name": "Agent",
+                                                                  "input": {"subagent_type": "scout", "prompt": "Review the diff."}}]}},
+                   {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a3", "content": "looks fine"}]}},
+                   result]
+        self.assertTrue(parent_reverified(events))  # the re-check came after the last subagent edit
+
+    def test_judge_log_labels_subagent_calls_and_clips_the_middle(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "run.jsonl"
+            log.write_text("\n".join(json.dumps(event) for event in delegated_session(GOOD_BRIEF)), encoding="utf-8")
+            lines = action_log(log, TARGET).splitlines()
+        self.assertTrue(lines[0].startswith("1. [parent] Agent: scout"), lines[0])
+        self.assertIn("[scout] Bash: python -m pytest -q", lines[1])
+        self.assertIn("[implementer] Edit: <repo>/app/x.py", "\n".join(lines))
+        self.assertTrue(lines[-1].endswith("[parent] Bash: python -m unittest"), lines[-1])
+        clipped = clip("a" * 15000 + "b" * 15000)
+        self.assertTrue(clipped.startswith("a") and clipped.endswith("b") and "[truncated]" in clipped)
 
     def test_session_summary_counts_subagent_tests_toward_reproduced_first(self) -> None:
         stdout = "\n".join(json.dumps(event) for event in delegated_session(GOOD_BRIEF))
@@ -609,7 +658,8 @@ class DelegationTests(unittest.TestCase):
         stdout = "\n".join(json.dumps(event) for event in delegated_session(GOOD_BRIEF, child_test_first=False))
         self.assertFalse(session_summary(stdout, "", TARGET)["reproduced_first"])
 
-    def test_claude_command_adds_agents_and_the_agent_tool(self) -> None:
+    @mock.patch("claude_model_check.claude_executable", return_value="claude")
+    def test_claude_command_adds_agents_and_the_agent_tool(self, _executable) -> None:
         plain = claude_command("opus", 40, [])
         self.assertNotIn("--agents", plain)
         command = claude_command("opus", 40, [], harness=DELEGATION_SPEC["harness"], agents_file=Path("/x/agents.json"))
@@ -652,10 +702,10 @@ class DelegationTests(unittest.TestCase):
         result = compare_arms(arm(0.5, 20), arm(0.8, 18), final, holdout=["hyg-001"])
         self.assertAlmostEqual(0.3, result["delegation"]["m_delta"])
         self.assertTrue(all(result["criteria"].values()), result["criteria"])
-        result = compare_arms(arm(0.5, 20), arm(0.7, 15, resolved=18), final, holdout=["hyg-001"])
+        result = compare_arms(arm(0.5, 20), arm(0.6, 15, resolved=18), final, holdout=["hyg-001"])
         self.assertFalse(result["criteria"]["delegation_m"])
         self.assertFalse(result["criteria"]["delegated"])
-        self.assertFalse(result["criteria"]["resolved_min"])
+        self.assertFalse(result["criteria"]["AC5"])
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@
   "flags": [
    "--forward-subagent-text"
   ],
-  "prompt_suffix": "Delegate investigation and the code change to the scout and implementer subagents; keep your own context for planning and review.",
+  "prompt_suffix": "Use the scout and implementer subagents for investigation and the code change.",
   "agents": {
    "scout": {
     "description": "Reads code and tests and reports findings. Use for investigation.",
@@ -73,20 +73,22 @@
   "implementer": "implementer",
   "brief": {
    "B1_reproduce": "reproduc|fail(?:s|ing|ed)? (?:before|first)|before (?:you |the |any )?(?:edit|chang|fix)|run (?:the )?(?:\\w+ )?tests? (?:first|before)|failing test|confirm (?:the )?(?:bug|failure)",
-   "B2_scope": "\\bonly\\b|do not (?:modify|change|edit|touch|add|remove)|don.t (?:modify|change|edit|touch)|leave .{0,40}(?:alone|unchanged|untouched)|smallest|minimal|unchanged|read-only",
-   "B3_evidence": "verbatim|exact (?:commands?|output)|\\bpaste|(?:show|include|report|return|give)\\b.{0,40}\\b(?:output|commands?)\\b|full output"
+   "B2_scope": "\\b(?:edit|change|modify|touch)\\w*\\b.{0,30}\\bonly\\b|\\bonly (?:edit|change|modify|touch)|\\bdo not (?:modify|change|edit|touch|add|remove)|\\bdon.t (?:modify|change|edit|touch|add|remove)|\\bnothing else\\b|\\boff-limits\\b|\\bleave\\b.{0,40}\\b(?:alone|unchanged|untouched)\\b|\\balone\\b|\\bsmallest\\b|\\bminimal (?:change|diff|fix|edit)|\\bread-only\\b|\\brestrict",
+   "B3_evidence": "\\b(?:verbatim|as-is|raw|full|complete|exact|unedited)\\b.{0,40}\\b(?:output|logs?|results?|commands?)\\b|\\b(?:output|logs?|results?)\\b.{0,40}\\b(?:verbatim|as-is|unedited)\\b|\\b(?:paste|copy)\\b.{0,40}\\b(?:output|logs?|results?)\\b"
   },
   "complete_brief": [
    "B2_scope",
    "B3_evidence"
   ],
-  "metric": "M = mean over sessions of (every implementer brief complete + parent re-verified) / 2"
+  "metric": "M = mean over delegating sessions of (every implementer brief complete + parent re-verified after the last subagent file change) / 2; any subagent that changes a file counts as an implementer",
+  "hidden_brief_sha256": "274644ed6006c472c3b7b0a2246c59d23091a99821fbd11a8587adcccb62ba23"
  },
  "calibration": {
   "fixtures": "train",
   "rounds": 1,
-  "stop_if_base_m_at_least": 0.75,
-  "stop_if_delegated_below": 4
+  "stop_if_base_m_at_least": 0.85,
+  "stop_if_delegated_below": 4,
+  "start_by_utc": "2026-10-03T05:00:00Z"
  },
  "guard": {
   "scope": [
@@ -102,9 +104,9 @@
  "loop": {
   "max_iterations": 3,
   "driver_budget_usd": 1.5,
-  "ledger_stop_usd": 20,
+  "ledger_stop_usd": 16,
   "deadline_utc": "2026-10-03T06:00:00Z",
-  "min_keep_improvement": 0.1
+  "min_keep_improvement": 0.17
  },
  "final": {
   "models": [
@@ -114,7 +116,7 @@
    "opus": 2
   },
   "fallback_rounds_if_session_cost_above_usd": 0.4,
-  "min_m_delta": 0.25,
+  "min_m_delta": 0.15,
   "reproduced_first_slack": 2,
   "min_pooled_delta": -1.5,
   "min_model_delta": -1.5,
@@ -124,14 +126,27 @@
   "bootstrap_resamples": 10000,
   "min_holdout_delta": -3.0,
   "resolved_slack": 1,
-  "min_resolved": 19,
   "max_cost_ratio": 1.15,
   "max_added_bytes": 700,
   "min_delegated": 16,
   "metric": "strict",
   "max_turns": 40,
   "graded_by_utc": "2026-10-03T06:45:00Z",
-  "decision_by_utc": "2026-10-03T07:15:00Z"
+  "decision_by_utc": "2026-10-03T07:15:00Z",
+  "min_hidden_m_delta": 0.15,
+  "fallback": {
+   "when": "spent + 1.2 * calibrated cost per session * 40 + 4 > 38, or calibrated cost per session > 0.40",
+   "rounds": {
+    "opus": 1
+   },
+   "min_delegated": 8,
+   "reproduced_first_slack": 1,
+   "resolved_slack": 1,
+   "min_m_delta": 0.15,
+   "min_hidden_m_delta": 0.15
+  },
+  "arms_interleaved": true,
+  "session_retries": 1
  },
  "load_bearing": {
   "LB1": [

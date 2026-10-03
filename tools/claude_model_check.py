@@ -346,6 +346,8 @@ def init_fingerprint(events: list[dict]) -> str | None:
     environment = {"model": init.get("model"), "version": init.get("claude_code_version"), "tools": names(init.get("tools")),
                    "skills": names(init.get("skills")), "plugins": names(init.get("plugins")),
                    "mcp_servers": names(init.get("mcp_servers")), "permission_mode": init.get("permissionMode")}
+    if "agents" in init:  # only in newer sessions, so older fingerprints stay comparable
+        environment["agents"] = names(init.get("agents"))
     return hashlib.sha256(json.dumps(environment, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
@@ -384,6 +386,7 @@ def session_summary(stdout: str, error: str, target: str) -> dict:
         "test_runs_loose": count_test_runs(calls),
         "first_turn_tokens": first_turn_tokens(events),
         "init_fingerprint": init_fingerprint(events),
+        "models_used": sorted((result.get("modelUsage") or {}).keys()),
         "error": error if not result else "",
     }
 
@@ -391,7 +394,9 @@ def session_summary(stdout: str, error: str, target: str) -> dict:
 def agent_calls(events: list[dict]) -> list[dict]:
     """The parent session's subagent calls; a subagent's own events carry parent_tool_use_id."""
     return [{"id": block.get("id"), "subagent_type": str((block.get("input") or {}).get("subagent_type", "")),
-             "prompt": str((block.get("input") or {}).get("prompt", ""))}
+             "prompt": str((block.get("input") or {}).get("prompt", "")),
+             "description": str((block.get("input") or {}).get("description", "")),
+             "background": bool((block.get("input") or {}).get("run_in_background"))}
             for event in events if event.get("type") == "assistant" and not event.get("parent_tool_use_id")
             for block in event.get("message", {}).get("content", [])
             if block.get("type") == "tool_use" and block.get("name") in ("Agent", "Task")]
@@ -402,35 +407,74 @@ def brief_signals(prompt: str, patterns: dict[str, str]) -> dict[str, bool]:
     return {item: bool(re.search(pattern, prompt or "", re.IGNORECASE)) for item, pattern in patterns.items()}
 
 
-def parent_reverified(events: list[dict]) -> bool:
-    """True when the parent itself ran tests (strict) after the last subagent result came back."""
-    parent = [event for event in events if not event.get("parent_tool_use_id")]
-    ids = {call["id"] for call in agent_calls(parent)}
-    last = max((index for index, event in enumerate(parent) if event.get("type") == "user"
-                for block in (event.get("message", {}).get("content") or [] if isinstance(event.get("message", {}).get("content"), list) else [])
-                if block.get("type") == "tool_result" and block.get("tool_use_id") in ids), default=None)
+def subagent_edits(events: list[dict], target: str = "/") -> dict[str, int]:
+    """Index of each subagent's last file change, by the id of the parent's Agent call that started it."""
+    last: dict[str, int] = {}
+    for index, event in enumerate(events):
+        owner = event.get("parent_tool_use_id")
+        if owner and event.get("type") == "assistant":
+            for block in event.get("message", {}).get("content", []):
+                if block.get("type") == "tool_use" and is_file_change(str(block.get("name")), block.get("input") or {}, target):
+                    last[owner] = index
+    return last
+
+
+def parent_reverified(events: list[dict], target: str = "/") -> bool:
+    """True when the parent itself ran tests (strict) after the last subagent file change.
+
+    Without a subagent file change, the check must come after the last subagent result instead.
+    """
+    ids = {call["id"] for call in agent_calls(events)}
+    edits = subagent_edits(events, target)
+    if edits:
+        last = max(edits.values())
+    else:
+        last = max((index for index, event in enumerate(events) if event.get("type") == "user" and not event.get("parent_tool_use_id")
+                    for block in (event.get("message", {}).get("content") if isinstance(event.get("message", {}).get("content"), list) else [])
+                    if block.get("type") == "tool_result" and block.get("tool_use_id") in ids), default=None)
     if last is None:
         return False
+    parent = [event for event in events[last + 1:] if not event.get("parent_tool_use_id")]
     outputs = tool_outputs(parent)
     return any(is_test_call((str(block.get("name")), block.get("input") or {}, outputs.get(str(block.get("id")), "")), strict=True)
-               for event in parent[last + 1:] if event.get("type") == "assistant"
+               for event in parent if event.get("type") == "assistant"
                for block in event.get("message", {}).get("content", []) if block.get("type") == "tool_use")
 
 
-def delegation_summary(events: list[dict], config: dict) -> dict:
-    """Delegation signals of one session (definitions in the delegation spec)."""
-    calls = [call for call in agent_calls(events) if call["subagent_type"] in config["subagents"]]
-    briefs = [{"subagent_type": call["subagent_type"], **brief_signals(call["prompt"], config["brief"])} for call in calls]
-    implementer = [brief for brief in briefs if brief["subagent_type"] == config["implementer"]]
+def delegation_summary(events: list[dict], config: dict, target: str = "/") -> dict:
+    """Delegation signals of one session (definitions in the delegation spec).
+
+    Any subagent that changed a file counts as an implementer, so a built-in agent cannot slip past the brief check.
+    """
+    calls = agent_calls(events)
+    edited = subagent_edits(events, target)
+    briefs = [{"subagent_type": call["subagent_type"], "edited": call["id"] in edited, **brief_signals(call["prompt"], config["brief"])}
+              for call in calls]
+    implementer = [brief for brief in briefs if brief["subagent_type"] == config["implementer"] or brief["edited"]]
     complete = bool(implementer) and all(all(brief[item] for item in config["complete_brief"]) for brief in implementer)
-    reverified = bool(calls) and parent_reverified(events)
+    reverified = bool(calls) and parent_reverified(events, target)
     return {"delegated": bool(calls), "agent_calls": len(calls), "implementer_calls": len(implementer), "briefs": briefs,
-            "brief_complete": complete, "reverified": reverified, "m_score": (complete + reverified) / 2}
+            "brief_complete": complete, "reverified": reverified, "m_score": (complete + reverified) / 2,
+            "other_agents": sum(call["subagent_type"] not in config["subagents"] for call in calls),
+            "background_agents": sum(call["background"] for call in calls)}
 
 
 def delegation_metric(rows: list[dict]) -> float:
-    """M: mean session score; a session without delegation data (it broke) scores 0."""
-    return statistics.mean(float((row.get("delegation") or {}).get("m_score", 0)) for row in rows) if rows else 0.0
+    """M: mean score over sessions that delegated; the delegation rate is checked separately."""
+    scores = [float(row["delegation"]["m_score"]) for row in rows if (row.get("delegation") or {}).get("delegated")]
+    return statistics.mean(scores) if scores else 0.0
+
+
+def rescore_delegation(rows: list[dict], config: dict) -> list[dict]:
+    """Copies of the rows with delegation signals recomputed from each session log, for example with other brief patterns."""
+    rescored = []
+    for row in rows:
+        log = Path(str(row.get("target", "")) + ".jsonl")
+        row = dict(row)
+        if row.get("delegation") is not None and log.is_file():
+            row["delegation"] = delegation_summary(stream_events(log.read_text(encoding="utf-8")), config, row["target"])
+        rescored.append(row)
+    return rescored
 
 
 class Ledger:
@@ -524,7 +568,7 @@ def fixture_job(args: argparse.Namespace, model: str, fixture_id: str, setup: st
     log = target.parent / f"{target.name}.jsonl"
     session = run_claude(command, prompt, target, log, args.timeout, getattr(args, "clean_config", False))
     if harness:
-        session["delegation"] = delegation_summary(stream_events(log.read_text(encoding="utf-8")), args.delegation)
+        session["delegation"] = delegation_summary(stream_events(log.read_text(encoding="utf-8")), args.delegation, str(target))
     score = run_fixture_target(item, target, args.timeout)
     return {"check": "fixtures", "setup": setup, "model": model, "case": fixture_id, "round": round_no,
             "target": str(target), "fixed": score["outcome"] == "pass", "test_outcome": score["outcome"],
@@ -577,17 +621,35 @@ def scrub(text: str, target: str) -> str:
 
 
 def action_log(log: Path, target: str) -> str:
-    """One line per tool call, in order, so the judge can see whether checks ran before and after edits."""
+    """One line per tool call, in order, so the judge can see whether checks ran before and after edits.
+
+    In a session with subagents, each line names who made the call, and an Agent call shows its subagent and task.
+    """
+    events = stream_events(log.read_text(encoding="utf-8") if log.is_file() else "")
+    owners = {call["id"]: call["subagent_type"] for call in agent_calls(events)}
     lines: list[str] = []
-    for name, tool_input in tool_calls(stream_events(log.read_text(encoding="utf-8") if log.is_file() else "")):
-        detail = tool_input.get("command") or tool_input.get("file_path") or tool_input.get("pattern") or ""
-        detail = " ".join(scrub(str(detail), target).split())
-        lines.append(f"{len(lines) + 1}. {name}: {detail[:200]}")
+    for event in events:
+        if event.get("type") != "assistant":
+            continue
+        for block in event.get("message", {}).get("content", []):
+            if block.get("type") != "tool_use":
+                continue
+            name, tool_input = str(block.get("name")), block.get("input") or {}
+            detail = tool_input.get("command") or tool_input.get("file_path") or tool_input.get("pattern") or ""
+            if name in ("Agent", "Task"):
+                detail = f"{tool_input.get('subagent_type', '')}: {tool_input.get('description', '')}"
+            detail = " ".join(scrub(str(detail), target).split())
+            who = f"[{owners.get(event.get('parent_tool_use_id'), 'subagent') if event.get('parent_tool_use_id') else 'parent'}] " if owners else ""
+            lines.append(f"{len(lines) + 1}. {who}{name}: {detail[:200]}")
     return "\n".join(lines) or "(no tool calls)"
 
 
 def clip(text: str) -> str:
-    return text if len(text) <= MAX_JUDGE_SECTION_CHARS else text[:MAX_JUDGE_SECTION_CHARS] + "\n[truncated]\n"
+    """Keep the start and the end, where the first checks and the final verification are."""
+    if len(text) <= MAX_JUDGE_SECTION_CHARS:
+        return text
+    half = MAX_JUDGE_SECTION_CHARS // 2
+    return text[:half] + "\n[truncated]\n" + text[-half:]
 
 
 def judge_prompt(row: dict) -> str:
@@ -1303,6 +1365,14 @@ def compare(args: argparse.Namespace) -> None:
     if ungraded:
         raise SystemExit(f"rows without a grade: {ungraded}")
     result = compare_arms(original, candidate, spec["final"], spec["fixtures"]["holdout"])
+    if args.hidden_patterns and "min_hidden_m_delta" in spec["final"]:
+        raw = args.hidden_patterns.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != spec["delegation"]["hidden_brief_sha256"]:
+            raise SystemExit("hidden brief patterns do not match the spec's hash")
+        config = {**spec["delegation"], "brief": json.loads(raw)}
+        old_m, new_m = (delegation_metric(rescore_delegation(rows, config)) for rows in (original, candidate))
+        result["delegation"]["hidden"] = {"m_original": old_m, "m_candidate": new_m, "m_delta": new_m - old_m}
+        result["criteria"]["delegation_m_hidden"] = new_m - old_m >= spec["final"]["min_hidden_m_delta"] - 1e-9
     result["init_fingerprints"] = {arm: {model: sorted({str(row.get("init_fingerprint")) for row in rows if row["model"] == model})
                                          for model in sorted({row["model"] for row in rows})}
                                    for arm, rows in (("original", original), ("candidate", candidate))}
@@ -1380,6 +1450,7 @@ def main() -> None:
     sub.add_argument("--original-skill", type=Path, help="Original SKILL.md, for the size criterion.")
     sub.add_argument("--candidate-skill", type=Path, help="Candidate SKILL.md, for the size criterion.")
     sub.add_argument("--out", type=Path, help="Write the full comparison as JSON here.")
+    sub.add_argument("--hidden-patterns", type=Path, help="Held-back brief patterns whose hash the delegation spec records.")
     args = parser.parse_args()
     if args.check == "size":
         print(skill_size(args.path.read_text(encoding="utf-8")))
