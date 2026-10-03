@@ -1,0 +1,306 @@
+{
+ "effort": "delegation-hygiene",
+ "skill": "code-hygiene/SKILL.md",
+ "base_commit": "c2f699d1356561d6e460d3bf4ba27af0e6ee4be4",
+ "frontmatter_sha256": "cd17072ee0fe4140cdf49f5892c3241c320a4c94ca9df87f465ab1dce67ab610",
+ "budget_usd": 40,
+ "ledger": "/home/user/hygiene-evals/delegation/ledger.jsonl",
+ "fixtures": {
+  "train": [
+   "hyg-006-currency-rounding",
+   "hyg-019-migration-forward-rollback",
+   "hyg-031-sql-injection",
+   "hyg-051-preserve-user-edits",
+   "hyg-062-js-retry-bounds",
+   "hyg-083-config-precedence"
+  ],
+  "holdout": [
+   "hyg-032-path-traversal",
+   "hyg-034-resource-authorization",
+   "hyg-064-secret-safe-logs",
+   "hyg-096-source-audit-http-domain"
+  ]
+ },
+ "editable_regions": [
+  [
+   "Report evidence, skipped checks, assumptions, and residual risk.",
+   "## Tool And Access Limits"
+  ]
+ ],
+ "harness": {
+  "orchestrator": "opus",
+  "max_turns": 40,
+  "setup": "invoked",
+  "extra_tools": [
+   "Agent"
+  ],
+  "flags": [
+   "--forward-subagent-text"
+  ],
+  "prompt_suffix": "Delegate investigation and the code change to the scout and implementer subagents; keep your own context for planning and review.",
+  "agents": {
+   "scout": {
+    "description": "Reads code and tests and reports findings. Use for investigation.",
+    "prompt": "You are a read-only investigator. Read what you are asked to read and report concisely.",
+    "tools": [
+     "Read",
+     "Glob",
+     "Grep",
+     "Bash"
+    ],
+    "model": "haiku"
+   },
+   "implementer": {
+    "description": "Makes code changes and runs tests. Use for edits.",
+    "prompt": "You are an implementer. Make the requested change and report what you did.",
+    "tools": [
+     "Read",
+     "Edit",
+     "Write",
+     "Glob",
+     "Grep",
+     "Bash"
+    ],
+    "model": "sonnet"
+   }
+  }
+ },
+ "delegation": {
+  "subagents": [
+   "scout",
+   "implementer"
+  ],
+  "implementer": "implementer",
+  "brief": {
+   "B1_reproduce": "reproduc|fail(?:s|ing|ed)? (?:before|first)|before (?:you |the |any )?(?:edit|chang|fix)|run (?:the )?(?:\\w+ )?tests? (?:first|before)|failing test|confirm (?:the )?(?:bug|failure)",
+   "B2_scope": "\\bonly\\b|do not (?:modify|change|edit|touch|add|remove)|don.t (?:modify|change|edit|touch)|leave .{0,40}(?:alone|unchanged|untouched)|smallest|minimal|unchanged|read-only",
+   "B3_evidence": "verbatim|exact (?:commands?|output)|\\bpaste|(?:show|include|report|return|give)\\b.{0,40}\\b(?:output|commands?)\\b|full output"
+  },
+  "complete_brief": [
+   "B2_scope",
+   "B3_evidence"
+  ],
+  "metric": "M = mean over sessions of (every implementer brief complete + parent re-verified) / 2"
+ },
+ "calibration": {
+  "fixtures": "train",
+  "rounds": 1,
+  "stop_if_base_m_at_least": 0.75,
+  "stop_if_delegated_below": 4
+ },
+ "guard": {
+  "scope": [
+   "code-hygiene/SKILL.md"
+  ],
+  "min_step_bytes": 0,
+  "max_new_words": 80,
+  "max_added_bytes": 700,
+  "max_unresolved": 1,
+  "min_delegated_share": 0.8,
+  "reproduced_first_slack": 1
+ },
+ "loop": {
+  "max_iterations": 3,
+  "driver_budget_usd": 1.5,
+  "ledger_stop_usd": 20,
+  "deadline_utc": "2026-10-03T06:00:00Z",
+  "min_keep_improvement": 0.1
+ },
+ "final": {
+  "models": [
+   "opus"
+  ],
+  "rounds": {
+   "opus": 2
+  },
+  "fallback_rounds_if_session_cost_above_usd": 0.4,
+  "min_m_delta": 0.25,
+  "reproduced_first_slack": 2,
+  "min_pooled_delta": -1.5,
+  "min_model_delta": -1.5,
+  "min_bootstrap_lower": -4.0,
+  "bootstrap_confidence": 0.9,
+  "bootstrap_seed": 20261003,
+  "bootstrap_resamples": 10000,
+  "min_holdout_delta": -3.0,
+  "resolved_slack": 1,
+  "min_resolved": 19,
+  "max_cost_ratio": 1.15,
+  "max_added_bytes": 700,
+  "min_delegated": 16,
+  "metric": "strict",
+  "max_turns": 40,
+  "graded_by_utc": "2026-10-03T06:45:00Z",
+  "decision_by_utc": "2026-10-03T07:15:00Z"
+ },
+ "load_bearing": {
+  "LB1": [
+   "For bugs, regressions, or flaky behavior, build the smallest deterministic feedback loop before fixing, or state why no loop is possible."
+  ],
+  "LB2": [
+   "If a check fails, return to Constrain, fix the cause, and re-run the same check."
+  ],
+  "LB3": [
+   "Hygiene progress: - [ ] Ground: relevant code, tests, and conventions read - [ ] Feedback loop: symptom reproduced, or blocker named - [ ] Constrain: smallest change made - [ ] Harden: edge cases, security, and tests checked - [ ] Verify: targeted checks pass (on failure, return to Constrain) - [ ] Report: evidence report written"
+  ],
+  "LB4": [
+   "Never revert unrelated user work."
+  ],
+  "LB5": [
+   "Do not claim complete, passing, fixed, safe, or ready without fresh tool output or a clearly stated blocker."
+  ],
+  "LB6": [
+   "Make the smallest behavior-correct change that satisfies the request.",
+   "Avoid opportunistic rewrites, formatting sweeps, dependency churn, broad search-and-replace, generated noise, and unrelated cleanup."
+  ],
+  "LB7": [
+   "Check behavior preservation, edge cases, input validation, authorization, secrets, path handling, injection risk, unsafe deserialization, privacy, and dependency risk when relevant."
+  ],
+  "LB8": [
+   "For config/default/precedence changes, test the intended winning source plus at least one absence or fallback control when the contract distinguishes defaults, files, environment variables, or overrides."
+  ],
+  "LB9": [
+   "Add or update tests when behavior changes, a bug can regress, a public contract moves, or the existing tests are placeholders."
+  ],
+  "LB11": [
+   "For reviews, lead with findings ordered by severity.",
+   "Include file/line evidence when available, and distinguish confirmed bugs from plausible risks."
+  ],
+  "LB12": [
+   "Before recursive deletion or moves, resolve the target path and prove it stays inside the intended directory."
+  ],
+  "LB13": [
+   "Do not invent command output, file contents, test results, links, versions, or line numbers."
+  ],
+  "LB14": [
+   "If the user explicitly asks for training, scoring, source-grounded honing, package export, or skill evolution, use `code-hygiene-compounder` instead.",
+   "Do not run training, PASS-100 promotion, source-grounded honing, fixture admission, source-pack admission, or skill self-mutation."
+  ],
+  "LB15": [
+   "Avoid replacing one silent failure with another.",
+   "Error paths need observable, useful behavior."
+  ],
+  "LB16": [
+   "Preserve public contracts, API shape, migrations, data formats, config precedence, and caller-owned mutable values unless the task explicitly changes them."
+  ],
+  "LB17": [
+   "Run broader checks for shared modules, public APIs, security-sensitive paths, config, packaging, migrations, generated schemas, or dependency changes."
+  ],
+  "LB18": [
+   "Add regression checks for the vulnerable path and at least one safe control when feasible."
+  ],
+  "LB19": [
+   "Do not patch symptoms from inspection alone when a deterministic loop is feasible."
+  ],
+  "LB20": [
+   "Check error handling, logging, retries, timeouts, observability, resource cleanup, concurrency, migration rollback, and compatibility when relevant."
+  ],
+  "LB21": [
+   "For explicitly bounded scratch, fixture, export, or subdirectory tasks, scope status, diff, and discovery commands to that target instead of letting parent repo state steer the work."
+  ],
+  "LB22": [
+   "State the smallest viable change and the verification plan."
+  ],
+  "LB24": [
+   "Patch only after the loop is understood or after a concrete blocker is named."
+  ],
+  "LB25": [
+   "Remove dead code and stale docs only when the local evidence supports removal."
+  ],
+  "LB26": [
+   "Prefer characterization tests or golden traces when behavior is unclear."
+  ],
+  "LB27": [
+   "Prefer framework-supported safe APIs over custom parsing or hand-rolled security controls."
+  ],
+  "LB28": [
+   "Each finding should name the behavior risk, affected path, evidence, and a practical fix direction."
+  ],
+  "LB29": [
+   "Respect lockfiles, manifests, generated files, and documented defaults."
+  ],
+  "LB30": [
+   "Verify adjacent consumer commands when package or config changes can affect install, build, runtime, or export behavior."
+  ],
+  "LB31": [
+   "Do not report theoretical issues as confirmed without a code path or behavior path."
+  ],
+  "LB32": [
+   "Keep comments sparse and useful.",
+   "Explain tricky business rules or non-obvious constraints; do not narrate obvious code."
+  ],
+  "LB33": [
+   "Prefer a focused test, CLI/script harness, UI automation, replayed fixture, captured trace, reduced example, or exact failing command over inspection."
+  ],
+  "LB34": [
+   "Add an abstraction only when it removes real complexity, reduces meaningful duplication, or matches an established local pattern."
+  ],
+  "LB35": [
+   "Check repo instructions and conventions before inventing a new style."
+  ],
+  "LB36": [
+   "Prefer existing helpers, frameworks, parsers, APIs, and architecture seams."
+  ],
+  "LB37": [
+   "If no loop is possible, state what was tried and what artifact, access, or environment is missing."
+  ],
+  "LB38": [
+   "Treat failing or unavailable checks as evidence, not as noise.",
+   "Do not move to Report on a failing check unless you name it as a blocker."
+  ],
+  "LB39": [
+   "If no issues are found, say so and name any test gaps or residual risk."
+  ],
+  "LB40": [
+   "Follow this loop on every code task."
+  ]
+ },
+ "anchors": [
+  {
+   "region": [
+    "### 6. Report",
+    "## Tool And Access Limits"
+   ],
+   "RA1": [
+    [
+     "feedback loop"
+    ]
+   ],
+   "RA2": [
+    [
+     "command"
+    ],
+    [
+     "result"
+    ]
+   ],
+   "RA3": [
+    [
+     "unrun",
+     "not run"
+    ]
+   ],
+   "RA4": [
+    [
+     "residual risk"
+    ]
+   ],
+   "RA5": [
+    [
+     "assumption"
+    ]
+   ]
+  },
+  {
+   "region": [
+    "Follow this loop on every code task.",
+    "``` Hygiene progress:"
+   ],
+   "LA1": [
+    [
+     "checklist"
+    ]
+   ]
+  }
+ ]
+}

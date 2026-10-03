@@ -388,6 +388,51 @@ def session_summary(stdout: str, error: str, target: str) -> dict:
     }
 
 
+def agent_calls(events: list[dict]) -> list[dict]:
+    """The parent session's subagent calls; a subagent's own events carry parent_tool_use_id."""
+    return [{"id": block.get("id"), "subagent_type": str((block.get("input") or {}).get("subagent_type", "")),
+             "prompt": str((block.get("input") or {}).get("prompt", ""))}
+            for event in events if event.get("type") == "assistant" and not event.get("parent_tool_use_id")
+            for block in event.get("message", {}).get("content", [])
+            if block.get("type") == "tool_use" and block.get("name") in ("Agent", "Task")]
+
+
+def brief_signals(prompt: str, patterns: dict[str, str]) -> dict[str, bool]:
+    """Which hygiene items a subagent brief asks for, by the spec's frozen case-insensitive patterns."""
+    return {item: bool(re.search(pattern, prompt or "", re.IGNORECASE)) for item, pattern in patterns.items()}
+
+
+def parent_reverified(events: list[dict]) -> bool:
+    """True when the parent itself ran tests (strict) after the last subagent result came back."""
+    parent = [event for event in events if not event.get("parent_tool_use_id")]
+    ids = {call["id"] for call in agent_calls(parent)}
+    last = max((index for index, event in enumerate(parent) if event.get("type") == "user"
+                for block in (event.get("message", {}).get("content") or [] if isinstance(event.get("message", {}).get("content"), list) else [])
+                if block.get("type") == "tool_result" and block.get("tool_use_id") in ids), default=None)
+    if last is None:
+        return False
+    outputs = tool_outputs(parent)
+    return any(is_test_call((str(block.get("name")), block.get("input") or {}, outputs.get(str(block.get("id")), "")), strict=True)
+               for event in parent[last + 1:] if event.get("type") == "assistant"
+               for block in event.get("message", {}).get("content", []) if block.get("type") == "tool_use")
+
+
+def delegation_summary(events: list[dict], config: dict) -> dict:
+    """Delegation signals of one session (definitions in the delegation spec)."""
+    calls = [call for call in agent_calls(events) if call["subagent_type"] in config["subagents"]]
+    briefs = [{"subagent_type": call["subagent_type"], **brief_signals(call["prompt"], config["brief"])} for call in calls]
+    implementer = [brief for brief in briefs if brief["subagent_type"] == config["implementer"]]
+    complete = bool(implementer) and all(all(brief[item] for item in config["complete_brief"]) for brief in implementer)
+    reverified = bool(calls) and parent_reverified(events)
+    return {"delegated": bool(calls), "agent_calls": len(calls), "implementer_calls": len(implementer), "briefs": briefs,
+            "brief_complete": complete, "reverified": reverified, "m_score": (complete + reverified) / 2}
+
+
+def delegation_metric(rows: list[dict]) -> float:
+    """M: mean session score; a session without delegation data (it broke) scores 0."""
+    return statistics.mean(float((row.get("delegation") or {}).get("m_score", 0)) for row in rows) if rows else 0.0
+
+
 class Ledger:
     """Append-only record of reported model cost that refuses work past a cap."""
 
@@ -414,11 +459,16 @@ class Ledger:
             handle.write(json.dumps(entry) + "\n")
 
 
-def claude_command(model: str, max_turns: int, plugin_dirs: list[Path]) -> list[str]:
+def claude_command(model: str, max_turns: int, plugin_dirs: list[Path], harness: dict | None = None,
+                   agents_file: Path | None = None) -> list[str]:
+    """A headless session command; a delegation harness adds its tools, flags, and subagent definitions."""
+    tools = " ".join([ALLOWED_TOOLS, *(harness or {}).get("extra_tools", [])])
     command = [claude_executable(), "-p", "--model", model, "--output-format", "stream-json", "--verbose",
-               "--max-turns", str(max_turns), "--permission-mode", "acceptEdits", "--allowedTools", ALLOWED_TOOLS]
+               "--max-turns", str(max_turns), "--permission-mode", "acceptEdits", "--allowedTools", tools]
     for plugin_dir in plugin_dirs:
         command += ["--plugin-dir", str(plugin_dir)]
+    if harness is not None:
+        command += [*harness.get("flags", []), "--agents", str(agents_file)]
     return command
 
 
@@ -462,15 +512,19 @@ def task_prompt(item: dict) -> str:
 
 def fixture_job(args: argparse.Namespace, model: str, fixture_id: str, setup: str, round_no: int) -> dict:
     item = find_fixture(TRAINER_ROOT / "fixtures", fixture_id)
-    prompt = task_prompt(item)
+    harness = getattr(args, "harness", None)
+    prompt = task_prompt(item) + (f" {harness['prompt_suffix']}" if harness else "")
     if setup == "invoked":
         prompt = f"/{CLEAN_SKILL} {prompt}"
     # An opaque folder name keeps the setup and model out of paths the blind judge reads.
     target = args.out / "targets" / f"run-{uuid.uuid4().hex[:12]}"
     copy_fixture_repo(item, target, force=True)
     plugin_dirs = {"none": [], "invoked": [args.plugins["clean"]], "available": list(args.plugins.values())}[setup]
-    session = run_claude(claude_command(model, args.max_turns, plugin_dirs), prompt, target, target.parent / f"{target.name}.jsonl",
-                         args.timeout, getattr(args, "clean_config", False))
+    command = claude_command(model, args.max_turns, plugin_dirs, harness, getattr(args, "agents_file", None))
+    log = target.parent / f"{target.name}.jsonl"
+    session = run_claude(command, prompt, target, log, args.timeout, getattr(args, "clean_config", False))
+    if harness:
+        session["delegation"] = delegation_summary(stream_events(log.read_text(encoding="utf-8")), args.delegation)
     score = run_fixture_target(item, target, args.timeout)
     return {"check": "fixtures", "setup": setup, "model": model, "case": fixture_id, "round": round_no,
             "target": str(target), "fixed": score["outcome"] == "pass", "test_outcome": score["outcome"],
@@ -701,6 +755,13 @@ def grade(args: argparse.Namespace) -> None:
     print(f"Graded {len(rows)} sessions {source}; reported judge cost ${judge_cost:.2f}.")
 
 
+def attach_delegation(session_args: argparse.Namespace, spec: dict, folder: Path) -> None:
+    """Give fixture sessions the spec's delegation harness: subagent definitions, extra tools, and prompt line."""
+    session_args.harness, session_args.delegation = spec["harness"], spec["delegation"]
+    session_args.agents_file = folder / "agents.json"
+    session_args.agents_file.write_text(json.dumps(spec["harness"]["agents"], indent=2), encoding="utf-8")
+
+
 def run_sessions(args: argparse.Namespace) -> None:
     args.out = args.out.resolve()
     if args.out == REPO_ROOT or REPO_ROOT in args.out.parents:
@@ -721,6 +782,8 @@ def run_sessions(args: argparse.Namespace) -> None:
         for case in cases:
             find_fixture(TRAINER_ROOT / "fixtures", case)
     (args.out / "targets").mkdir(parents=True)
+    if getattr(args, "delegate", None):
+        attach_delegation(args, json.loads(args.delegate.read_text(encoding="utf-8")), args.out)
     args.plugins = stage_plugins(getattr(args, "skill_file", None))
     plan = [(model, case, setup, round_no) for round_no in range(1, args.rounds + 1)
             for setup in setups for model in args.models for case in cases]
@@ -809,6 +872,8 @@ def static_guard(*, candidate: str, base: str, previous: str, original: str, cha
         lost = missing_anchors(candidate, anchor_set, strip=frozen)
         if lost:
             failures.append(f"anchors missing: {', '.join(lost)}")
+    if "max_added_bytes" in guard and skill_size(candidate) - skill_size(original) > guard["max_added_bytes"]:
+        failures.append(f"added {skill_size(candidate) - skill_size(original)} normalized bytes > {guard['max_added_bytes']}")
     added = new_words(normalized_body(candidate), normalized_body(original), normalized_body(base))
     if len(added) > guard["max_new_words"]:
         failures.append(f"new words {len(added)} > {guard['max_new_words']}: {', '.join(added)}")
@@ -886,6 +951,23 @@ def brevity_verdict(candidate: list[dict], base: list[dict], guard: dict) -> tup
     first = sum(bool(row["reproduced_first"]) for row in candidate)
     if first < guard["min_reproduced_first"]:
         reasons.append(f"reproduced first {first} below {guard['min_reproduced_first']}")
+    return ("fail" if reasons else "pass"), reasons
+
+
+def delegation_verdict(candidate: list[dict], base: list[dict], guard: dict) -> tuple[str, list[str]]:
+    """Behavioral guard for a candidate's delegated sessions against the base text's (thresholds in the spec)."""
+    if not candidate or any(not row.get("completed") or row.get("error") for row in candidate):
+        return "infrastructure", ["a measured session did not finish"]
+    reasons = []
+    unresolved = sum(not (row["fixed"] and row["protected_files_ok"]) for row in candidate)
+    if unresolved > guard["max_unresolved"]:
+        reasons.append(f"unresolved sessions {unresolved}")
+    delegated = sum(bool((row.get("delegation") or {}).get("delegated")) for row in candidate)
+    if delegated < guard["min_delegated_share"] * len(candidate):
+        reasons.append(f"delegated in {delegated} of {len(candidate)} sessions")
+    first, had = (sum(bool(row["reproduced_first"]) for row in rows) for rows in (candidate, base))
+    if first < had - guard["reproduced_first_slack"]:
+        reasons.append(f"reproduced first {first} vs base {had}")
     return ("fail" if reasons else "pass"), reasons
 
 
@@ -974,14 +1056,26 @@ def compare_arms(original: list[dict], candidate: list[dict], final: dict, holdo
                  or (token_saving is not None and min(token_saving.values()) >= final["min_first_turn_token_saving"]))
     result["criteria"] = {
         "AC2": tokens_ok and result["cost_ratio"] is not None and result["cost_ratio"] <= final["max_cost_ratio"]
-               and (result["test_runs_ratio"] is None or result["test_runs_ratio"] >= final["min_test_runs_ratio"]),
+               and (result["test_runs_ratio"] is None or result["test_runs_ratio"] >= final.get("min_test_runs_ratio", 0)),
         "AC3": result["pooled_delta"] >= final["min_pooled_delta"] and min(per_model.values()) >= final["min_model_delta"]
                and interval[0] >= final["min_bootstrap_lower"],
         "AC4": result["holdout_delta"] is not None and result["holdout_delta"] >= final["min_holdout_delta"],
         "AC5": result["resolved"]["candidate"] >= result["resolved"]["original"] - final["resolved_slack"],
         "AC6": first["candidate"] >= first["original"] - final["reproduced_first_slack"]
-               and first["sonnet_candidate"] >= first["sonnet_original"] - final["sonnet_reproduced_first_slack"],
+               and ("sonnet_reproduced_first_slack" not in final
+                    or first["sonnet_candidate"] >= first["sonnet_original"] - final["sonnet_reproduced_first_slack"]),
     }
+    if "min_resolved" in final:
+        result["criteria"]["resolved_min"] = result["resolved"]["candidate"] >= final["min_resolved"]
+    if "min_m_delta" in final:
+        def share(arm: dict, field: str) -> int:
+            return sum(bool((arm[pair].get("delegation") or {}).get(field)) for pair in pairs)
+        old_m, new_m = (delegation_metric([arm[pair] for pair in pairs]) for arm in (before, after))
+        result["delegation"] = {"m_original": old_m, "m_candidate": new_m, "m_delta": new_m - old_m,
+                                **{field: {"original": share(before, field), "candidate": share(after, field)}
+                                   for field in ("delegated", "brief_complete", "reverified")}}
+        result["criteria"]["delegation_m"] = new_m - old_m >= final["min_m_delta"] - 1e-9
+        result["criteria"]["delegated"] = min(result["delegation"]["delegated"].values()) >= final["min_delegated"]
     if "max_report_ratio" in final:
         per_model = [value for value in result["report_ratio_per_model"].values() if value is not None]
         result["total_text_ratio"] = ratio("assistant_text_chars")
@@ -1071,6 +1165,11 @@ def guard(args: argparse.Namespace) -> None:
             print(f"guard: infrastructure; no measure run for {', '.join(str(path.parent) for path in measured if not path.is_file())}")
             raise SystemExit(4)
         rows, base_rows = (json.loads(path.read_text(encoding="utf-8"))["rows"] for path in measured)
+        if "delegation" in spec:
+            verdict, reasons = delegation_verdict(rows, base_rows, settings)
+            print(f"guard: {verdict}; M {delegation_metric(rows):.3f} vs base {delegation_metric(base_rows):.3f}"
+                  + "".join(f"\n- {reason}" for reason in reasons))
+            raise SystemExit({"pass": 0, "fail": 1, "infrastructure": 4}[verdict])
         verdict, reasons = brevity_verdict(rows, base_rows, settings)
         print(f"guard: {verdict}; score {statistics.mean(row['total'] for row in rows):.1f} vs base "
               f"{statistics.mean(row['total'] for row in base_rows):.1f}; report {pooled_mean(rows, 'final_report_chars'):.0f} vs base "
@@ -1126,8 +1225,14 @@ def measure_dir(out_root: Path, text: str) -> Path:
 
 
 def run_measure(spec: dict, text: str, args: argparse.Namespace) -> dict:
-    """Run and grade the spec's measure sessions for one SKILL.md text; cached by the text's hash."""
-    settings, run = spec["measure"], measure_dir(args.out_root, text)
+    """Run and grade the spec's measure sessions for one SKILL.md text; cached by the text's hash.
+
+    A delegation spec measures its Opus-plus-subagents harness with mechanical signals only: no judge.
+    """
+    delegating = "harness" in spec
+    settings = ({"models": [spec["harness"]["orchestrator"]], "rounds": 1, "max_turns": spec["harness"]["max_turns"]}
+                if delegating else spec["measure"])
+    run = measure_dir(args.out_root, text)
     done = run / "measure.json"
     if done.is_file():
         return json.loads(done.read_text(encoding="utf-8"))
@@ -1139,6 +1244,8 @@ def run_measure(spec: dict, text: str, args: argparse.Namespace) -> dict:
         skill_file.write_text(text, encoding="utf-8")
         session_args = argparse.Namespace(check="fixtures", out=run, max_turns=settings["max_turns"], timeout=args.timeout,
                                           jobs=args.jobs, retries=1, plugins=stage_plugins(skill_file), clean_config=False)
+        if delegating:
+            attach_delegation(session_args, spec, run)
         try:
             plan = [(model, case, "invoked", round_no) for round_no in range(1, settings["rounds"] + 1)
                     for model in settings["models"] for case in spec["fixtures"]["train"]]
@@ -1150,6 +1257,11 @@ def run_measure(spec: dict, text: str, args: argparse.Namespace) -> dict:
             raise SystemExit(3)
         if any(not row["completed"] or row["error"] for row in rows):
             raise SystemExit(4)
+        if delegating:
+            payload = {"skill_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "size": skill_size(text),
+                       "metric": delegation_metric(rows), "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "rows": rows}
+            done.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            return payload
         grades = grade_all(rows, lambda row: grade_job(settings["judge"], row, args.timeout, ledger, False, run.name), args.jobs, 1)
         if any("error" in grade for grade in grades):
             raise SystemExit(4)
@@ -1168,6 +1280,15 @@ def measure(args: argparse.Namespace) -> None:
     text = (args.text or REPO_ROOT / spec["skill"]).read_text(encoding="utf-8")
     payload = run_measure(spec, text, args)
     rows = payload["rows"]
+    if "harness" in spec:
+        print(f"measure: M {payload['metric']:.3f}; delegated {sum(bool(row['delegation']['delegated']) for row in rows)}/{len(rows)}; "
+              f"brief complete {sum(bool(row['delegation']['brief_complete']) for row in rows)}; "
+              f"reverified {sum(bool(row['delegation']['reverified']) for row in rows)}; "
+              f"reproduced first {sum(bool(row['reproduced_first']) for row in rows)}; "
+              f"resolved {sum(bool(row['fixed'] and row['protected_files_ok']) for row in rows)}; "
+              f"cost ${sum(row['cost_usd'] or 0 for row in rows):.2f}; run {measure_dir(args.out_root, text)}", file=sys.stderr)
+        print(f"{payload['metric']:.3f}")
+        return
     print(f"measure: report {payload['metric']:.1f} chars (pooled); score {statistics.mean(row['total'] for row in rows):.1f}; "
           f"capped {sum(row['total'] <= 72 for row in rows)}; sessions {len(rows)}; run {measure_dir(args.out_root, text)}",
           file=sys.stderr)
@@ -1220,6 +1341,7 @@ def main() -> None:
         sub.add_argument("--retries", type=int, default=0, help="Re-run a session that broke before finishing, up to this many times.")
         sub.add_argument("--skill-file", type=Path, help="SKILL.md text to stage as the code-hygiene skill instead of this checkout's.")
         sub.add_argument("--clean-config", action="store_true", help="Give every session a fresh, empty CLAUDE_CONFIG_DIR.")
+        sub.add_argument("--delegate", type=Path, help="Delegation spec JSON: run fixtures with its Opus-plus-subagents harness.")
     sub = commands.add_parser("grade")
     budget(sub)
     sub.add_argument("--run", type=Path, required=True, help="Output directory of a finished fixtures run.")
